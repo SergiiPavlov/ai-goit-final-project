@@ -1,0 +1,216 @@
+openapi: 3.1.0
+info:
+  title: AI Assistant Service API
+  version: 0.1.0
+  description: >
+    Reusable AI Assistant Service (multi-tenant) with an informational-only safety policy.
+servers:
+  - url: https://example.onrender.com
+    description: Render (example)
+  - url: http://localhost:8080
+    description: Local (example)
+tags:
+  - name: System
+  - name: Assistant
+  - name: Projects
+
+paths:
+  /v1/health:
+    get:
+      tags: [System]
+      summary: Liveness probe
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /v1/version:
+    get:
+      tags: [System]
+      summary: Build/version info
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionResponse"
+
+  /v1/projects/{key}/public-config:
+    get:
+      tags: [Projects]
+      summary: Public configuration for widget/client
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicConfigResponse"
+        "404":
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/chat:
+    post:
+      tags: [Assistant]
+      summary: Chat with the assistant
+      security:
+        - ProjectKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing/invalid X-Project-Key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  securitySchemes:
+    ProjectKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Project-Key
+
+  schemas:
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        status: { type: string, enum: [ok] }
+      required: [status]
+
+    VersionResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        version: { type: string, description: Semver or build tag }
+        commit: { type: string, description: Git commit sha, nullable: true }
+        builtAt: { type: string, format: date-time, nullable: true }
+      required: [version]
+
+    PublicConfigResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        projectKey: { type: string }
+        localeDefault: { type: string, enum: [ru, uk, en] }
+        disclaimer: { type: string }
+        limits:
+          type: object
+          additionalProperties: false
+          properties:
+            maxMessageChars: { type: integer, minimum: 1 }
+            maxHistoryItems: { type: integer, minimum: 0 }
+          required: [maxMessageChars, maxHistoryItems]
+      required: [projectKey, localeDefault, disclaimer, limits]
+
+    ChatRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 8000
+        locale:
+          type: string
+          enum: [ru, uk, en]
+          default: ru
+        context:
+          type: object
+          additionalProperties: true
+          description: Optional structured context (e.g., pregnancy week)
+        history:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/ChatMessage"
+      required: [message]
+
+    ChatMessage:
+      type: object
+      additionalProperties: false
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+      required: [role, content]
+
+    ChatResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        reply:
+          type: string
+        warnings:
+          type: array
+          items: { type: string }
+        safetyLevel:
+          type: string
+          enum: [normal, caution, urgent]
+        sources:
+          type: array
+          description: RAG citations (may be empty)
+          items:
+            $ref: "#/components/schemas/SourceCitation"
+      required: [reply, warnings, safetyLevel, sources]
+
+    SourceCitation:
+      type: object
+      additionalProperties: false
+      properties:
+        sourceId: { type: string }
+        title: { type: string }
+        snippet: { type: string }
+        url: { type: string, nullable: true }
+      required: [sourceId, title, snippet]
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        error: { type: string }
+        message: { type: string }
+        details:
+          type: object
+          additionalProperties: true
+          nullable: true
+      required: [error, message]
