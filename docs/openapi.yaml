@@ -1,14 +1,14 @@
 openapi: 3.1.0
 info:
   title: AI Assistant Service API
-  version: 0.1.0
+  version: 0.3.0
   description: >
     Reusable AI Assistant Service (multi-tenant) with an informational-only safety policy.
 servers:
   - url: https://example.onrender.com
     description: Render (example)
-  - url: http://localhost:8080
-    description: Local (example)
+  - url: http://localhost:4001
+    description: Local
 tags:
   - name: System
   - name: Assistant
@@ -61,6 +61,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Origin is not allowed for this project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /v1/chat:
     post:
@@ -93,12 +99,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Origin is not allowed for this project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "429":
           description: Rate limit exceeded
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "501":
+          description: Not implemented yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatResponse"
 
 components:
   securitySchemes:
@@ -113,16 +131,18 @@ components:
       additionalProperties: false
       properties:
         status: { type: string, enum: [ok] }
-      required: [status]
+        uptimeSec: { type: integer, nullable: true }
+        ts: { type: string, format: date-time }
+      required: [status, ts]
 
     VersionResponse:
       type: object
       additionalProperties: false
       properties:
-        version: { type: string, description: Semver or build tag }
-        commit: { type: string, description: Git commit sha, nullable: true }
-        builtAt: { type: string, format: date-time, nullable: true }
-      required: [version]
+        name: { type: string }
+        version: { type: string }
+        ts: { type: string, format: date-time }
+      required: [name, version, ts]
 
     PublicConfigResponse:
       type: object
@@ -207,10 +227,18 @@ components:
       type: object
       additionalProperties: false
       properties:
-        error: { type: string }
-        message: { type: string }
-        details:
+        error:
           type: object
-          additionalProperties: true
-          nullable: true
-      required: [error, message]
+          additionalProperties: false
+          properties:
+            code: { type: string }
+            message: { type: string }
+            requestId: { type: string, nullable: true }
+            issues:
+              type: array
+              nullable: true
+              items:
+                type: object
+                additionalProperties: true
+          required: [code, message]
+      required: [error]

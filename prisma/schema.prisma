@@ -6,8 +6,10 @@ generator client {
 }
 
 datasource db {
-  provider          = "postgresql"
-  url               = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // PR-03: avoid requiring CREATEDB on DATABASE_URL user (Prisma uses this for dev shadow DB).
+  // Provide a separate shadow database URL in your local .env.
   shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 

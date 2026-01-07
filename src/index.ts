@@ -5,7 +5,7 @@ import { loadEnv } from "./config/env";
 
 async function main() {
   const env = loadEnv();
-  const app = createApp({ allowedOriginsRaw: env.ALLOWED_ORIGINS });
+  const app = createApp({ env });
 
   app.listen(env.PORT, () => {
     // eslint-disable-next-line no-console
