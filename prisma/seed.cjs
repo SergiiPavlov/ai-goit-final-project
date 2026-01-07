@@ -5,27 +5,45 @@ dotenv.config();
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
+function buildDefaultSystemPrompt() {
+  return [
+    "Ты справочный ассистент по беременности.",
+    "Главное: отвечай на вопрос пользователя по сути (без общих вступлений).",
+    "Формат ответа:",
+    "1) Короткий вывод (Да/Нет/Зависит) в 1–2 предложениях.",
+    "2) 3–6 пунктов объяснения (риски/ограничения/альтернативы).",
+    "3) Если вопрос про симптомы — отдельно перечисли 'красные флаги', когда нужно срочно обратиться к врачу/в скорую.",
+    "Ограничения:",
+    "- Не ставь диагнозы.",
+    "- Не назначай лекарства и дозировки.",
+    "- Не отменяй назначения врача.",
+    "- При сомнениях предлагай обратиться к врачу.",
+  ].join("\n");
+}
+
 async function main() {
   const defaultProjectKey = process.env.DEFAULT_PROJECT_KEY || "leleka-dev";
+
+  const defaultCreate = {
+    name: "Leleka (dev)",
+    publicKey: defaultProjectKey,
+    allowedOrigins: ["http://localhost:3000", "http://localhost:5173"],
+    localeDefault: "ru",
+    disclaimerTemplate: "Информация носит справочный характер и не заменяет консультацию врача.",
+    systemPrompt: buildDefaultSystemPrompt(),
+  };
 
   const project = await prisma.project.upsert({
     where: { publicKey: defaultProjectKey },
     update: {
-      // keep existing settings
+      // PR-05: make seed deterministic — update defaults on every run.
+      allowedOrigins: defaultCreate.allowedOrigins,
+      localeDefault: defaultCreate.localeDefault,
+      disclaimerTemplate: defaultCreate.disclaimerTemplate,
+      systemPrompt: defaultCreate.systemPrompt,
+      name: defaultCreate.name,
     },
-    create: {
-      name: "Leleka (dev)",
-      publicKey: defaultProjectKey,
-      allowedOrigins: [
-        "http://localhost:3000",
-        "http://localhost:5173",
-      ],
-      localeDefault: "ru",
-      disclaimerTemplate:
-        "Информация носит справочный характер и не заменяет консультацию врача.",
-      systemPrompt:
-        "Ты справочный ассистент по беременности. Не ставь диагнозы и не назначай лечение. Всегда напоминай обратиться к врачу при тревожных симптомах.",
-    },
+    create: defaultCreate,
     select: { id: true, publicKey: true, allowedOrigins: true },
   });
 

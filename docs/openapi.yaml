@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: AI Assistant Service API
-  version: 0.3.0
+  version: 0.5.0
   description: >
     Reusable AI Assistant Service (multi-tenant) with an informational-only safety policy.
 servers:
@@ -9,10 +9,12 @@ servers:
     description: Render (example)
   - url: http://localhost:4001
     description: Local
+
 tags:
   - name: System
   - name: Assistant
   - name: Projects
+  - name: KnowledgeBase
 
 paths:
   /v1/health:
@@ -118,6 +120,114 @@ paths:
               schema:
                 $ref: "#/components/schemas/ChatResponse"
 
+  /v1/kb/sources:
+    get:
+      tags: [KnowledgeBase]
+      summary: List knowledge sources for the current project
+      security:
+        - ProjectKeyAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KbSourcesResponse"
+        "401":
+          description: Missing/invalid X-Project-Key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Origin is not allowed for this project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    post:
+      tags: [KnowledgeBase]
+      summary: Create a text-only knowledge source (auto-chunked)
+      security:
+        - ProjectKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateKbSourceRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateKbSourceResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing/invalid X-Project-Key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Origin is not allowed for this project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/kb/sources/{id}:
+    delete:
+      tags: [KnowledgeBase]
+      summary: Delete a knowledge source (and all its chunks)
+      security:
+        - ProjectKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          description: Missing/invalid X-Project-Key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Origin is not allowed for this project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   securitySchemes:
     ProjectKeyAuth:
@@ -222,6 +332,46 @@ components:
         snippet: { type: string }
         url: { type: string, nullable: true }
       required: [sourceId, title, snippet]
+
+    KbSource:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string }
+        projectId: { type: string }
+        title: { type: string }
+        url: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        chunksCount: { type: integer, minimum: 0 }
+      required: [id, projectId, title, createdAt, updatedAt, chunksCount]
+
+    KbSourcesResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/KbSource"
+      required: [items]
+
+    CreateKbSourceRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        title: { type: string, minLength: 1, maxLength: 160 }
+        url: { type: string, format: uri }
+        text: { type: string, minLength: 1, maxLength: 200000 }
+      required: [title, text]
+
+    CreateKbSourceResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        source:
+          $ref: "#/components/schemas/KbSource"
+      required: [source]
 
     ErrorResponse:
       type: object
