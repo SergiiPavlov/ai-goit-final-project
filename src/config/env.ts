@@ -14,8 +14,19 @@ const EnvSchema = z.object({
 
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
 
-  // Not used in PR-02 yet, but reserved
+  // Optional but recommended for local development. See Prisma shadow DB docs.
+  SHADOW_DATABASE_URL: z.string().optional(),
+
+  // PR-03: lightweight in-memory rate limit (per projectKey + IP).
+  RATE_LIMIT_WINDOW_SEC: z.coerce.number().int().positive().default(60),
+  RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
+
+  // LLM provider (PR-04)
   OPENAI_API_KEY: z.string().optional(),
+  OPENAI_MODEL: z.string().default("gpt-4o-mini"),
+  OPENAI_BASE_URL: z.string().default("https://api.openai.com/v1"),
+  OPENAI_TIMEOUT_MS: z.coerce.number().int().positive().default(25000),
+  OPENAI_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.2),
 });
 
 export type AppEnv = z.infer<typeof EnvSchema>;
