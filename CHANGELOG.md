@@ -1,5 +1,7 @@
 # Changelog
 
-## 0.1.0 (PR-01)
-- Defined API contract (OpenAPI) for /v1/chat, /v1/projects/{key}/public-config, /v1/health, /v1/version
-- Documented safety policy and triage rules
+## [0.2.0] - 2026-01-07
+- PR-02: Bootstrap Express+TS service, env validation, middleware, health/version endpoints, Prisma wiring.
+
+## [0.1.0] - 2026-01-07
+- PR-01: OpenAPI contract + safety policy.

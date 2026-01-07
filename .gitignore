@@ -1,7 +1,11 @@
 node_modules
+.dist
+build
 dist
 .env
 .env.*
-.DS_Store
+!.env.example
 coverage
+.DS_Store
 *.log
+.prisma

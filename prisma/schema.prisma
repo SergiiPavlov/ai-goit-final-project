@@ -1,0 +1,24 @@
+// PR-02: Prisma wiring (PostgreSQL) + initial model scaffold.
+// NOTE: Multi-tenant enforcement and Project management API will be implemented in PR-03.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+model Project {
+  id                 String   @id @default(uuid())
+  name               String
+  publicKey          String   @unique
+  allowedOrigins     String[] @default([])
+  localeDefault      String   @default("ru")
+  disclaimerTemplate String   @default("Информация носит справочный характер и не заменяет консультацию врача.")
+  systemPrompt       String   @default("Ты справочный ассистент по беременности. Не ставь диагнозы и не назначай лечение.")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
