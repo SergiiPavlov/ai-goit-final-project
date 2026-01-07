@@ -3,20 +3,33 @@ import type { ProjectRecord } from "../projects.service";
 import type { AppEnv } from "../../config/env";
 import { openaiChatJson } from "./openai";
 import { maxSafety, triageMessage, type SafetyLevel } from "./triage";
+import { retrieveKnowledgeCitations, type KnowledgeCitation } from "../kb.service";
 
 const SourceCitationSchema = z.object({
-  title: z.string().min(1).optional(),
-  url: z.string().url().optional(),
+  sourceId: z.string().min(1),
+  title: z.string().min(1),
+  snippet: z.string().min(1),
+  url: z.string().url().nullable().optional(),
 });
 
-export const ChatResponseSchema = z.object({
+export const ApiChatResponseSchema = z.object({
   reply: z.string().min(1),
   warnings: z.array(z.string()).default([]),
   safetyLevel: z.enum(["normal", "caution", "urgent"]).default("normal"),
   sources: z.array(SourceCitationSchema).default([]),
 });
 
-export type ChatResponse = z.infer<typeof ChatResponseSchema>;
+export type ChatResponse = z.infer<typeof ApiChatResponseSchema>;
+
+// Provider JSON payload (we keep it tolerant; server attaches citations).
+const ProviderChatResponseSchema = z.object({
+  reply: z.string().min(1),
+  warnings: z.array(z.string()).optional().default([]),
+  safetyLevel: z.enum(["normal", "caution", "urgent"]).optional().default("normal"),
+  sources: z.any().optional(),
+});
+
+type ProviderChatResponse = z.infer<typeof ProviderChatResponseSchema>;
 
 const ChatHistoryItemSchema = z.object({
   role: z.enum(["user", "assistant"]),
@@ -24,8 +37,13 @@ const ChatHistoryItemSchema = z.object({
 });
 export type ChatHistoryItem = z.infer<typeof ChatHistoryItemSchema>;
 
-function buildSystemPrompt(opts: { project: ProjectRecord; locale: string; context?: any }) {
-  const { project, locale, context } = opts;
+function buildSystemPrompt(opts: {
+  project: ProjectRecord;
+  locale: string;
+  context?: any;
+  knowledgeExcerpts?: string;
+}) {
+  const { project, locale, context, knowledgeExcerpts } = opts;
 
   const languageHint =
     locale === "en"
@@ -35,8 +53,8 @@ function buildSystemPrompt(opts: { project: ProjectRecord; locale: string; conte
         : "Отвечай по-русски.";
 
   const formatHint = `Return ONLY valid JSON with this shape:
-{ "reply": string, "warnings": string[], "safetyLevel": "normal"|"caution"|"urgent", "sources": { "title"?: string, "url"?: string }[] }.
-No markdown. No extra keys.`;
+{ "reply": string, "warnings": string[], "safetyLevel": "normal"|"caution"|"urgent", "sources": [] }.
+No markdown. No extra keys. Keep sources as an empty array (server attaches citations).`;
 
   const medicalSafety = `Constraints:
 - This is informational only, not medical advice.
@@ -44,12 +62,18 @@ No markdown. No extra keys.`;
 - Encourage consulting a doctor for symptoms or uncertainty.
 - If there are red-flag symptoms, set safetyLevel="urgent" and include a warning.`;
 
+  const kbBlock = knowledgeExcerpts
+    ? `Knowledge base excerpts (use these when relevant):
+${knowledgeExcerpts}`
+    : "Knowledge base excerpts: (none)";
+
   const contextBlock = context ? `User context (JSON, may be empty): ${JSON.stringify(context)}` : "";
 
   return [
     project.systemPrompt,
     languageHint,
     medicalSafety,
+    kbBlock,
     `Always include this disclaimer at the end of reply (in the same language): "${project.disclaimerTemplate}"`,
     contextBlock,
     formatHint,
@@ -66,6 +90,19 @@ function ensureDisclaimer(reply: string, disclaimer: string) {
   return `${r}\n\n${d}`;
 }
 
+function normalizeCitations(citations: KnowledgeCitation[]) {
+  // Deduplicate by (sourceId + snippet) to keep output stable.
+  const seen = new Set<string>();
+  const out: KnowledgeCitation[] = [];
+  for (const c of citations) {
+    const key = `${c.sourceId}:${c.snippet}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(c);
+  }
+  return out;
+}
+
 export async function chatWithAssistant(opts: {
   env: AppEnv;
   project: ProjectRecord;
@@ -78,7 +115,13 @@ export async function chatWithAssistant(opts: {
 
   const triage = triageMessage(message, locale);
 
-  const system = buildSystemPrompt({ project, locale, context });
+  const { excerpts, citations } = await retrieveKnowledgeCitations({
+    projectId: project.id,
+    query: message,
+    limit: 4,
+  });
+
+  const system = buildSystemPrompt({ project, locale, context, knowledgeExcerpts: excerpts });
 
   // Keep history small; the request schema already caps at 50.
   const history = (opts.history ?? []).slice(-20);
@@ -104,13 +147,18 @@ export async function chatWithAssistant(opts: {
       reply,
       warnings: triage.warnings,
       safetyLevel: triage.level,
-      sources: [],
+      sources: normalizeCitations(citations).map((c) => ({
+        sourceId: c.sourceId,
+        title: c.title,
+        snippet: c.snippet,
+        url: c.url ?? null,
+      })),
     };
   }
 
   const raw = await openaiChatJson({ env, messages });
 
-  const parsed = ChatResponseSchema.safeParse(raw);
+  const parsed = ProviderChatResponseSchema.safeParse(raw);
   if (!parsed.success) {
     // Provider returned valid JSON but not our contract. Return a safe generic message.
     const reply = ensureDisclaimer(
@@ -126,19 +174,29 @@ export async function chatWithAssistant(opts: {
       reply,
       warnings: triage.warnings,
       safetyLevel: triage.level,
-      sources: [],
+      sources: normalizeCitations(citations).map((c) => ({
+        sourceId: c.sourceId,
+        title: c.title,
+        snippet: c.snippet,
+        url: c.url ?? null,
+      })),
     };
   }
 
-  const modelResp = parsed.data;
+  const modelResp: ProviderChatResponse = parsed.data;
 
-  const safetyLevel: SafetyLevel = maxSafety(modelResp.safetyLevel, triage.level);
-  const warnings = Array.from(new Set([...(triage.warnings ?? []), ...(modelResp.warnings ?? [])]));
+  const safetyLevel: SafetyLevel = maxSafety(modelResp.safetyLevel ?? "normal", triage.level);
+  const warnings = Array.from(new Set([...(triage.warnings ?? []), ...((modelResp.warnings as any) ?? [])]));
 
   return {
     reply: ensureDisclaimer(modelResp.reply, project.disclaimerTemplate),
     warnings,
     safetyLevel,
-    sources: modelResp.sources ?? [],
+    sources: normalizeCitations(citations).map((c) => ({
+      sourceId: c.sourceId,
+      title: c.title,
+      snippet: c.snippet,
+      url: c.url ?? null,
+    })),
   };
 }

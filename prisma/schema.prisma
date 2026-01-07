@@ -1,5 +1,8 @@
+// Prisma schema for Leleka AI Assistant Service
+//
 // PR-02: Prisma wiring (PostgreSQL) + initial model scaffold.
-// NOTE: Multi-tenant enforcement and Project management API will be implemented in PR-03.
+// PR-03: Multi-tenant enforcement (Project by publicKey) + shadow DB support.
+// PR-05: Text-only Knowledge Base (KB) to power deterministic citations in /v1/chat.
 
 generator client {
   provider = "prisma-client-js"
@@ -8,19 +11,55 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  // PR-03: avoid requiring CREATEDB on DATABASE_URL user (Prisma uses this for dev shadow DB).
-  // Provide a separate shadow database URL in your local .env.
+  // Avoid requiring CREATEDB on DATABASE_URL user (Prisma uses this for dev shadow DB).
   shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 model Project {
-  id                 String   @id @default(uuid())
+  id                 String            @id @default(uuid())
   name               String
-  publicKey          String   @unique
-  allowedOrigins     String[] @default([])
-  localeDefault      String   @default("ru")
-  disclaimerTemplate String   @default("Информация носит справочный характер и не заменяет консультацию врача.")
-  systemPrompt       String   @default("Ты справочный ассистент по беременности. Не ставь диагнозы и не назначай лечение.")
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  publicKey          String            @unique
+  allowedOrigins     String[]          @default([])
+  localeDefault      String            @default("ru")
+  disclaimerTemplate String            @default("Информация носит справочный характер и не заменяет консультацию врача.")
+  systemPrompt       String            @default("Ты справочный ассистент по беременности. Не ставь диагнозы и не назначай лечение.")
+
+  knowledgeSources   KnowledgeSource[]
+  knowledgeChunks    KnowledgeChunk[]
+
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+}
+
+model KnowledgeSource {
+  id        String   @id @default(uuid())
+  projectId String
+  title     String
+  url       String?
+  text      String
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chunks    KnowledgeChunk[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+}
+
+model KnowledgeChunk {
+  id        String          @id @default(uuid())
+  projectId String
+  sourceId  String
+  ord       Int
+  content   String
+
+  project   Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  source    KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([projectId])
+  @@index([sourceId])
+  @@unique([sourceId, ord])
 }

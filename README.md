@@ -1,95 +1,94 @@
 # Leleka AI Assistant Service
 
-Переиспользуемый backend‑сервис «ИИ‑ассистент» (API‑first), который можно подключать к разным проектам. Первый потребитель — **Лелека**.
+Reusable AI assistant backend service (Node.js + Express + TypeScript + Prisma + PostgreSQL) designed to be embedded into other products (first target: Leleka).
 
-## PR‑03 scope (Multi‑tenant + Shadow DB)
-- Multi‑tenant: все «боевые» ассистент‑эндпоинты работают в контексте проекта.
-  - `POST /v1/chat` требует заголовок `X-Project-Key`.
-  - `GET /v1/projects/{key}/public-config` возвращает публичный конфиг проекта.
-- CORS:
-  - пре‑флайт обрабатывается корректно;
-  - дополнительно на project‑эндпоинтах проверяется `Origin` по `Project.allowedOrigins` (в `development` пустой allowlist допускается).
-- Rate limit: простая in‑memory защита (projectKey + IP), настраивается env‑переменными.
-- Prisma Shadow Database: добавлен `SHADOW_DATABASE_URL` (нужно для `prisma migrate dev` без прав `CREATEDB`).
+Important: this service provides **informational-only** answers and must always be positioned as **not a substitute for a doctor**.
 
-> `POST /v1/chat` реализован (PR‑04): интеграция с OpenAI Chat Completions в режиме JSON.
-> Если `OPENAI_API_KEY` не задан, эндпоинт вернёт детерминированный ответ (для стабильного демо у проверяющих).
+## Requirements
+- Node.js 18+
+- PostgreSQL
 
-## Требования
-- Node.js >= 18.17
-- PostgreSQL (локально или облачный)
+## Quick start
 
-## Локальный запуск (Windows, PostgreSQL установлен)
-### 1) Создать БД + пользователя
-Открой psql под `postgres` (или другим суперпользователем):
-
-```bash
-"C:\Program Files\PostgreSQL\17\bin\psql.exe" -h localhost -p 5432 -U postgres -d postgres
-```
-
-Внутри psql:
-
-```sql
-CREATE DATABASE leleka_ai;
-CREATE USER leleka_ai_user WITH PASSWORD 'StrongPassword123!';
-ALTER DATABASE leleka_ai OWNER TO leleka_ai_user;
-
--- Shadow DB для Prisma
-CREATE DATABASE leleka_ai_shadow OWNER leleka_ai_user;
-```
-
-### 2) Настроить env
-
-```bash
-cp .env.example .env
-```
-
-Заполни `.env` (пример):
-
-```env
-DATABASE_URL=postgresql://leleka_ai_user:StrongPassword123!@localhost:5432/leleka_ai
-SHADOW_DATABASE_URL=postgresql://leleka_ai_user:StrongPassword123!@localhost:5432/leleka_ai_shadow
-
-# Рекомендуется (prod): ограничить CORS на домены фронта
-ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
-```
-
-Важно:
-- Пароли в `.env.example` оставляем как плейсхолдеры. Реальные значения держим только в `.env` (он не коммитится).
-
-### 3) Миграции и сид
+1) Install dependencies
 
 ```bash
 npm i
+```
+
+2) Create `.env` from `.env.example` and set DB URLs
+
+- `DATABASE_URL` — main DB for the service
+- `SHADOW_DATABASE_URL` — a separate DB used by Prisma Migrate in dev (so the DB user does NOT need CREATEDB)
+
+Note: `.env.example` contains placeholders (`USER:PASSWORD`). Do not commit real passwords into the repo. Real secrets live only in `.env` (which is gitignored) and in Render env vars.
+
+3) Generate Prisma client + run migrations
+
+```bash
 npx prisma generate
 npx prisma migrate dev
+```
+
+4) Seed default project
+
+```bash
 npm run prisma:seed
 ```
 
-Сид создаст проект по умолчанию с ключом `leleka-dev` и allowlist `http://localhost:3000,http://localhost:5173`.
-
-### 4) Запуск API
+5) Run dev server
 
 ```bash
 npm run dev
 ```
 
-## Smoke (local)
+Health:
 
 ```bash
-curl -i http://localhost:4001/v1/health
-curl -i http://localhost:4001/v1/version
+curl -s http://localhost:4001/v1/health
+```
 
-# public config
-curl -i http://localhost:4001/v1/projects/leleka-dev/public-config
+## Auth / Multi-tenant
+All project-scoped endpoints require `X-Project-Key` (Project.publicKey).
 
-# chat (заглушка, но ключ проверяется)
+Example:
+
+```bash
 curl -i -X POST http://localhost:4001/v1/chat \
   -H "Content-Type: application/json" \
   -H "X-Project-Key: leleka-dev" \
-  -d '{"message":"Привет"}'
+  -d '{"message":"Можно ли кофе при беременности?","locale":"ru"}'
 ```
 
-## Документация
-- OpenAPI: `docs/openapi.yaml`
-- Safety policy (черновик): `docs/policy.md`
+## PR5: Knowledge Base (text-only)
+To make answers less “общими” and to fill `sources[]`, you can add internal knowledge documents (text) and the service will auto-chunk them.
+
+### Add a KB source
+
+```bash
+curl -i -X POST http://localhost:4001/v1/kb/sources \
+  -H "Content-Type: application/json" \
+  -H "X-Project-Key: leleka-dev" \
+  -d '{"title":"Питание при беременности: рыба/суши","url":null,"text":"...ваш текст..."}'
+```
+
+### List KB sources
+
+```bash
+curl -s http://localhost:4001/v1/kb/sources \
+  -H "X-Project-Key: leleka-dev"
+```
+
+### Delete KB source
+
+```bash
+curl -i -X DELETE http://localhost:4001/v1/kb/sources/<SOURCE_ID> \
+  -H "X-Project-Key: leleka-dev"
+```
+
+## OpenAPI
+Swagger spec is in `docs/openapi.yaml`.
+
+## Notes
+- If `OPENAI_API_KEY` is not set, the server returns a deterministic stub reply (for reviewer-friendly local runs).
+- Seed (`npm run prisma:seed`) intentionally **overwrites** default project settings (systemPrompt + disclaimerTemplate), so environments stay consistent.
