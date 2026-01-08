@@ -86,6 +86,49 @@ curl -i -X DELETE http://localhost:4001/v1/kb/sources/<SOURCE_ID> \
   -H "X-Project-Key: leleka-dev"
 ```
 
+## PR6: Embeddable widget (zero-build)
+
+The service ships a tiny vanilla JS widget that you can embed into any website without bundlers.
+
+### Where it is served
+
+After start, the widget is available at:
+
+- `GET /widget/widget.js`
+- `GET /widget/widget.css`
+
+Example (local dev):
+
+```text
+http://localhost:4001/widget/widget.js
+```
+
+### Embed snippet
+
+Add this to any page (replace host and `data-project`):
+
+```html
+<script
+  src="https://YOUR-AI-SERVICE.example.com/widget/widget.js"
+  data-project="leleka-dev"
+></script>
+```
+
+Optional: force language (otherwise it uses Project.localeDefault):
+
+```html
+<script
+  src="https://YOUR-AI-SERVICE.example.com/widget/widget.js"
+  data-project="leleka-dev"
+  data-locale="ru"
+></script>
+```
+
+### CORS / allowed origins
+
+The widget calls `POST /v1/chat` and `GET /v1/projects/:key/public-config` from the website domain.
+Make sure that domain is allowed for the project (Project.allowedOrigins) or add it to `ALLOWED_ORIGINS` for prod.
+
 ## OpenAPI
 Swagger spec is in `docs/openapi.yaml`.
 

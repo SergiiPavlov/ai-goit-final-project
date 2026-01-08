@@ -1,0 +1,194 @@
+/* Leleka AI Widget styles (PR-06)
+   No external deps. Keep it simple and readable.
+*/
+
+:root {
+  --lw-fg: #111827;
+  --lw-bg: #ffffff;
+  --lw-muted: #6b7280;
+  --lw-border: rgba(17, 24, 39, 0.12);
+  --lw-shadow: 0 12px 30px rgba(0,0,0,0.18);
+  --lw-accent: #2563eb;
+  --lw-accent-2: #1d4ed8;
+}
+
+.lw-launcher {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 2147483000;
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 14px;
+  font: 600 14px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  cursor: pointer;
+  color: #fff;
+  background: var(--lw-accent);
+  box-shadow: var(--lw-shadow);
+}
+
+.lw-launcher:hover { background: var(--lw-accent-2); }
+
+.lw-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483001;
+  display: none;
+}
+
+.lw-overlay.lw-open {
+  display: block;
+}
+
+.lw-overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+}
+
+.lw-modal {
+  position: absolute;
+  right: 18px;
+  bottom: 74px;
+  width: min(420px, calc(100vw - 36px));
+  height: min(640px, calc(100vh - 120px));
+  background: var(--lw-bg);
+  color: var(--lw-fg);
+  border-radius: 16px;
+  box-shadow: var(--lw-shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--lw-border);
+}
+
+.lw-header {
+  padding: 12px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--lw-border);
+  background: rgba(17,24,39,0.02);
+}
+
+.lw-title {
+  font: 700 14px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+.lw-close {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: 700 16px/1 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  color: var(--lw-muted);
+  padding: 6px 10px;
+  border-radius: 10px;
+}
+
+.lw-close:hover { background: rgba(17,24,39,0.06); }
+
+.lw-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+#leleka-widget-messages {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+}
+
+.lw-msg {
+  border: 1px solid var(--lw-border);
+  border-radius: 14px;
+  padding: 10px 10px;
+  margin-bottom: 10px;
+}
+
+.lw-msg--user {
+  background: rgba(37,99,235,0.06);
+}
+
+.lw-msg__role {
+  font: 700 12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  color: var(--lw-muted);
+  margin-bottom: 6px;
+}
+
+.lw-msg__text {
+  font: 400 13px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+#leleka-widget-meta {
+  margin: 0 12px 12px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px dashed var(--lw-border);
+  background: rgba(17,24,39,0.03);
+  font: 400 12px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  color: var(--lw-muted);
+}
+
+.lw-footer {
+  border-top: 1px solid var(--lw-border);
+  padding: 10px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.lw-input {
+  width: 100%;
+  resize: none;
+  border: 1px solid var(--lw-border);
+  border-radius: 12px;
+  padding: 10px 10px;
+  font: 400 13px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  outline: none;
+}
+
+.lw-input:focus {
+  border-color: rgba(37,99,235,0.5);
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+}
+
+.lw-send {
+  border: 0;
+  border-radius: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font: 700 13px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  color: #fff;
+  background: var(--lw-accent);
+}
+
+.lw-send:hover { background: var(--lw-accent-2); }
+
+.lw-send[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+#leleka-widget-disclaimer {
+  padding: 10px 12px;
+  border-top: 1px solid var(--lw-border);
+  font: 400 12px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  color: var(--lw-muted);
+  background: rgba(17,24,39,0.02);
+}
+
+@media (max-width: 420px) {
+  .lw-modal {
+    right: 12px;
+    bottom: 70px;
+    width: calc(100vw - 24px);
+  }
+  .lw-launcher {
+    right: 12px;
+    bottom: 12px;
+  }
+}
