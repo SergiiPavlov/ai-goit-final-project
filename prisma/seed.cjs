@@ -27,7 +27,16 @@ async function main() {
   const defaultCreate = {
     name: "Leleka (dev)",
     publicKey: defaultProjectKey,
-    allowedOrigins: ["http://localhost:3000", "http://localhost:5173"],
+    // IMPORTANT: widget is embedded into external pages.
+    // Add common local dev origins (Live Server / npx serve / Vite / Next).
+    allowedOrigins: [
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "http://localhost:5500",
+      "http://127.0.0.1:5500",
+    ],
     localeDefault: "ru",
     disclaimerTemplate: "Информация носит справочный характер и не заменяет консультацию врача.",
     systemPrompt: buildDefaultSystemPrompt(),

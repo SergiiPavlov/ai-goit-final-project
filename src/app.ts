@@ -1,5 +1,5 @@
 import express from "express";
-import cors from "cors";
+import path from "path";
 import helmet from "helmet";
 import morgan from "morgan";
 import { createV1Router } from "./routes/v1";
@@ -27,35 +27,96 @@ export function createApp(opts: { env: AppEnv }) {
     morgan(":method :url :status :res[content-length] - :response-time ms rid=:rid")
   );
 
-  const fallbackAllowedOrigins = parseAllowedOrigins(opts.env.ALLOWED_ORIGINS);
+  // Global (env-level) allowlist.
+  // IMPORTANT: we treat it as an *additional* allowlist, not an override.
+  // Otherwise a partially configured ALLOWED_ORIGINS would accidentally block origins
+  // that are explicitly allowed per project (Project.allowedOrigins), breaking the widget.
+  const envAllowedOrigins = parseAllowedOrigins(opts.env.ALLOWED_ORIGINS);
 
-  // PR-03: CORS is a browser concern (server-to-server is unaffected).
-  // We respond to preflight requests even before the projectKey is known.
-  // Strategy:
-  // - If ALLOWED_ORIGINS is configured: allow only those origins.
-  // - Otherwise (local dev): allow origins that exist in ANY Project.allowedOrigins.
-  // - If origin header is absent: allow.
+// PR-03/06: Dynamic CORS for the public widget.
+// We intentionally keep CORS decisions aligned with the same allowlist used by the API:
+// - If ALLOWED_ORIGINS is configured: allow only those origins.
+// - Otherwise: allow only origins present in ANY Project.allowedOrigins (seeded locally, configurable per project).
+//
+// IMPORTANT:
+// - Browsers require a successful preflight (OPTIONS) for cross-origin fetch() with custom headers (X-Project-Key).
+// - Relying on Express default OPTIONS often returns "Allow: GET,HEAD" without CORS headers, which breaks the widget.
+//
+// This middleware:
+// - Sets Access-Control-* headers for allowed origins
+// - Answers OPTIONS preflight with 204
+// - Rejects disallowed origins with ORIGIN_NOT_ALLOWED early (consistent with project allowlist)
+  app.use(async (req: any, res, next) => {
+  const origin = req.header("origin");
+  if (!origin) return next();
+
+  // Allow if:
+  // - explicitly allowed by env OR
+  // - present in ANY project's allowlist (DB)
+  // This keeps local dev friction-free while still respecting strict allowlists.
+  let allowed = envAllowedOrigins.includes(origin);
+
+  if (!allowed) {
+    try {
+      allowed = await isOriginAllowedByAnyProject(origin);
+    } catch {
+      allowed = false;
+    }
+  }
+
+  if (!allowed) {
+    return res.status(403).json({
+      error: {
+        code: "ORIGIN_NOT_ALLOWED",
+        message: "Origin is not allowed",
+        requestId: req.requestId ?? undefined,
+      },
+    });
+  }
+
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Vary", "Origin");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+
+  if (req.method === "OPTIONS") {
+    const reqHeaders =
+      req.header("access-control-request-headers") ||
+      "Content-Type, Authorization, X-Project-Key";
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", reqHeaders);
+    res.setHeader("Access-Control-Max-Age", "600");
+    return res.sendStatus(204);
+  }
+
+  return next();
+  });
+
+  // PR-06: The widget is designed to be embedded on third-party sites.
+  // Helmet sets Cross-Origin-Resource-Policy: same-origin by default, which blocks <script src=".../widget.js">
+  // from other origins. We relax CORP ONLY for /widget/* static assets.
+  app.use("/widget", (req, res, next) => {
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    next();
+  });
+
+  // PR-06: minimal integration widget (served as static assets)
+  // Note: build step does NOT copy assets; we serve from repo root (public/*)
+  // so deploy must include the /public folder next to /dist.
   app.use(
-    cors((req, cb) => {
-      const origin = req.header("origin");
-      if (!origin) {
-        return cb(null, { origin: true, credentials: true });
-      }
-
-      // Explicit fallback allowlist (recommended for prod).
-      if (fallbackAllowedOrigins.length > 0) {
-        const ok = fallbackAllowedOrigins.includes(origin);
-        return cb(null, { origin: ok, credentials: true });
-      }
-
-      // Dev-friendly: allow only known project origins.
-      isOriginAllowedByAnyProject(origin)
-        .then((ok) => cb(null, { origin: ok || opts.env.NODE_ENV === "development", credentials: true }))
-        .catch(() => cb(null, { origin: opts.env.NODE_ENV === "development", credentials: true }));
+    "/widget",
+    express.static(path.join(process.cwd(), "public"), {
+      fallthrough: true,
+      // keep caching conservative for easy iteration
+      maxAge: opts.env.NODE_ENV === "production" ? "1h" : 0,
+      setHeaders(res) {
+        // Ensure the browser treats the file correctly
+        if (res.req?.path?.endsWith(".js")) res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+        if (res.req?.path?.endsWith(".css")) res.setHeader("Content-Type", "text/css; charset=utf-8");
+      },
     })
   );
 
-  // Routes
+  // API routes
   app.use("/v1", createV1Router(opts.env));
 
   // 404 + error handling
