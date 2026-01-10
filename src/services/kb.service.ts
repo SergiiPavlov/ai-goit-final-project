@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 
 export type KnowledgeSourceRecord = {
@@ -140,6 +141,16 @@ function buildSnippet(content: string, query: string) {
   return (start > 0 ? "…" : "") + slice.trim() + (start + max < c.length ? "…" : "");
 }
 
+function toPgVectorLiteral(v: number[]) {
+  // pgvector accepts a text literal: '[0.1,0.2,...]'
+  // Keep a reasonable precision; embeddings are float32-like.
+  const nums = v.map((n) => {
+    if (!Number.isFinite(n)) return "0";
+    return Number(n).toFixed(6);
+  });
+  return `[${nums.join(",")}]`;
+}
+
 export async function listKnowledgeSources(projectId: string): Promise<KnowledgeSourceRecord[]> {
   const sources = await prisma.knowledgeSource.findMany({
     where: { projectId },
@@ -242,10 +253,53 @@ export async function deleteKnowledgeSource(opts: {
 export async function retrieveKnowledgeCitations(opts: {
   projectId: string;
   query: string;
+  queryEmbedding?: number[];
   limit?: number;
 }): Promise<{ excerpts: string; citations: KnowledgeCitation[] }> {
   const { projectId, query } = opts;
   const limit = Math.max(1, Math.min(8, opts.limit ?? 4));
+
+  // PR-02: vector search path (requires pgvector extension and embeddings backfilled)
+  if (opts.queryEmbedding && opts.queryEmbedding.length) {
+    try {
+      const vec = toPgVectorLiteral(opts.queryEmbedding);
+      const rows = (await prisma.$queryRaw(
+        Prisma.sql`
+          SELECT
+            c."content" as "content",
+            s."id" as "sourceId",
+            s."title" as "title",
+            s."url" as "url"
+          FROM "KnowledgeChunk" c
+          JOIN "KnowledgeSource" s ON s."id" = c."sourceId"
+          WHERE c."projectId" = ${projectId}
+            AND c."embedding" IS NOT NULL
+          ORDER BY c."embedding" <=> ${vec}::vector
+          LIMIT ${limit}
+        `
+      )) as Array<{ content: string; sourceId: string; title: string; url: string | null }>;
+
+      if (rows?.length) {
+        const citations: KnowledgeCitation[] = rows.map((r) => ({
+          sourceId: r.sourceId,
+          title: r.title,
+          url: r.url,
+          snippet: buildSnippet(r.content, query),
+        }));
+
+        const excerpts = rows
+          .map((r, idx) => {
+            const head = `[#${idx + 1}] ${r.title}${r.url ? ` (${r.url})` : ""}`;
+            return `${head}\n${r.content}`;
+          })
+          .join("\n\n---\n\n");
+
+        return { excerpts, citations };
+      }
+    } catch {
+      // Fall through to lexical retrieval.
+    }
+  }
 
   const tokens = tokenizeQuery(query);
   if (!tokens.length) {

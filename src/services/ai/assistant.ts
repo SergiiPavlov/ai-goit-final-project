@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ProjectRecord } from "../projects.service";
 import type { AppEnv } from "../../config/env";
-import { openaiChatJson } from "./openai";
+import { openaiChatJson, openaiEmbeddings } from "./openai";
 import { maxSafety, triageMessage, type SafetyLevel } from "./triage";
 import { retrieveKnowledgeCitations, type KnowledgeCitation } from "../kb.service";
 
@@ -115,9 +115,22 @@ export async function chatWithAssistant(opts: {
 
   const triage = triageMessage(message, locale);
 
+  // PR-02: RAG retrieval prefers vector search when OpenAI is configured.
+  let queryEmbedding: number[] | undefined;
+  if (env.OPENAI_API_KEY) {
+    try {
+      const vecs = await openaiEmbeddings({ env, input: [message] });
+      queryEmbedding = vecs?.[0];
+    } catch {
+      // Retrieval will fall back to lexical matching.
+      queryEmbedding = undefined;
+    }
+  }
+
   const { excerpts, citations } = await retrieveKnowledgeCitations({
     projectId: project.id,
     query: message,
+    queryEmbedding,
     limit: 4,
   });
 

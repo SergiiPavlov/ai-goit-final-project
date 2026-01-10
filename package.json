@@ -1,6 +1,6 @@
 {
   "name": "leleka-ai-assistant-service",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "commonjs",
   "main": "dist/index.js",
@@ -12,7 +12,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "node prisma/seed.cjs",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "kb:backfill-embeddings": "ts-node-dev --transpile-only src/scripts/kbBackfillEmbeddings.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

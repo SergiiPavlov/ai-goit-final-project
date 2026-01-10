@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Leleka AI — Demo</title>
+    <link rel="stylesheet" href="./demo.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="header">
+        <h1>Leleka AI Assistant Service — Demo</h1>
+        <p class="mute">
+          Эта страница нужна для локальной проверки API и для ревью: один сервер, один UI.
+          Запросы идут на текущий origin.
+        </p>
+      </header>
+
+      <section class="card">
+        <div class="row">
+          <div>
+            <label class="label" for="baseUrl">Base URL</label>
+            <input id="baseUrl" class="input" type="text" value="" readonly />
+          </div>
+          <div>
+            <label class="label" for="projectKey">X-Project-Key</label>
+            <input id="projectKey" class="input" type="text" value="leleka-dev" />
+          </div>
+          <div>
+            <label class="label" for="locale">Locale</label>
+            <select id="locale" class="input">
+              <option value="">(project default)</option>
+              <option value="ru" selected>ru</option>
+              <option value="uk">uk</option>
+              <option value="en">en</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="grow">
+            <label class="label" for="message">Message</label>
+            <textarea id="message" class="textarea" rows="5">Можно ли кофе при беременности?</textarea>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="btnSend" class="btn primary" type="button">Send to /v1/chat</button>
+          <button id="btnConfig" class="btn" type="button">Load /v1/projects/:key/public-config</button>
+          <button id="btnClear" class="btn" type="button">Clear</button>
+        </div>
+
+        <div class="split">
+          <div class="pane">
+            <h2>Response (rendered)</h2>
+            <div id="rendered" class="rendered"></div>
+          </div>
+          <div class="pane">
+            <h2>Response (raw JSON)</h2>
+            <pre id="json" class="pre"></pre>
+          </div>
+        </div>
+      </section>
+
+      <footer class="footer mute">
+        <p>
+          Endpoints used: <code>POST /v1/chat</code>, <code>GET /v1/projects/:key/public-config</code>.
+          Widget assets: <code>/widget/widget.js</code>, <code>/widget/widget.css</code>.
+        </p>
+      </footer>
+    </main>
+
+    <script src="./demo.js" defer></script>
+  </body>
+</html>

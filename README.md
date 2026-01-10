@@ -86,6 +86,27 @@ curl -i -X DELETE http://localhost:4001/v1/kb/sources/<SOURCE_ID> \
   -H "X-Project-Key: leleka-dev"
 ```
 
+## PR2: RAG with embeddings (pgvector)
+
+This release adds **pgvector** and a `KnowledgeChunk.embedding` vector column.
+
+When `OPENAI_API_KEY` is configured, `/v1/chat` prefers **vector search** for KB retrieval (and falls back to lexical matching if embeddings are not available).
+
+### Backfill embeddings for existing KB chunks
+
+After migrations/seed, run:
+
+```bash
+npm run kb:backfill-embeddings
+```
+
+Environment:
+
+- `OPENAI_API_KEY` (required)
+- `OPENAI_EMBEDDING_MODEL` (default: `text-embedding-3-small`)
+
+Tip: you can control batch size with `EMBED_BATCH=32`.
+
 ## PR6: Embeddable widget (zero-build)
 
 The service ships a tiny vanilla JS widget that you can embed into any website without bundlers.
