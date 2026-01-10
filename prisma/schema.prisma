@@ -53,6 +53,8 @@ model KnowledgeChunk {
   sourceId  String
   ord       Int
   content   String
+  // PR-02: pgvector embeddings (stored as native vector type)
+  embedding Unsupported("vector")?
 
   project   Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   source    KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)

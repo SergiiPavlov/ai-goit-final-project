@@ -24,6 +24,8 @@ const EnvSchema = z.object({
   // LLM provider (PR-04)
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-4o-mini"),
+  // Embeddings for RAG (PR-02)
+  OPENAI_EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
   OPENAI_BASE_URL: z.string().default("https://api.openai.com/v1"),
   OPENAI_TIMEOUT_MS: z.coerce.number().int().positive().default(25000),
   OPENAI_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.2),
