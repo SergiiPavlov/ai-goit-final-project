@@ -29,6 +29,85 @@ const ProviderChatResponseSchema = z.object({
   sources: z.any().optional(),
 });
 
+function tokenizeForRelevance(text: string) {
+  const raw = (text || "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .split(" ")
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  // Domain/common stopwords (keep this small; it's a relevance *heuristic*, not NLP)
+  const stop = new Set([
+    "и",
+    "в",
+    "во",
+    "на",
+    "не",
+    "что",
+    "это",
+    "как",
+    "ли",
+    "я",
+    "мы",
+    "вы",
+    "он",
+    "она",
+    "они",
+    "то",
+    "а",
+    "но",
+    "или",
+    "при",
+    "можно",
+    "нужно",
+    // Pregnancy is almost always present; it's not discriminative for topic relevance
+    "беременность",
+    "беременности",
+    "беременной",
+    "беременна",
+    "беремен",
+    "pregnancy",
+    "pregnant",
+    // EN
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "is",
+    "are",
+    "to",
+    "in",
+    "on",
+    "for",
+    "with",
+    "can",
+    "should",
+  ]);
+
+  return raw
+    .filter((t) => t.length >= 4)
+    .filter((t) => !stop.has(t));
+}
+
+function looksIrrelevant(question: string, answer: string) {
+  // Only enforce for actual questions; do not penalize smoke tests like "Тест smoke"
+  const q = question || "";
+  const isQuestion = /[?？]/.test(q) || /^можно\s+ли\b/i.test(q) || /^can\s+i\b/i.test(q);
+  if (!isQuestion) return false;
+
+  const qTokens = tokenizeForRelevance(q);
+  if (!qTokens.length) return false;
+
+  const a = (answer || "").toLowerCase();
+  for (const t of qTokens) {
+    // Substring match is ok for RU morphology, e.g. "курить" vs "курение"
+    if (a.includes(t)) return false;
+  }
+  return true;
+}
+
 type ProviderChatResponse = z.infer<typeof ProviderChatResponseSchema>;
 
 const ChatHistoryItemSchema = z.object({
@@ -134,13 +213,16 @@ export async function chatWithAssistant(opts: {
     limit: 4,
   });
 
-  const system = buildSystemPrompt({ project, locale, context, knowledgeExcerpts: excerpts });
+  const systemWithKb = buildSystemPrompt({ project, locale, context, knowledgeExcerpts: excerpts });
+  const systemNoKb =
+    buildSystemPrompt({ project, locale, context, knowledgeExcerpts: "" }) +
+    "\n\nIMPORTANT: Answer the user's last question directly. Do not switch topics. If the question asks about a specific item (e.g. smoking, coffee), you must explicitly mention it in the first sentence.";
 
   // Keep history small; the request schema already caps at 50.
   const history = (opts.history ?? []).slice(-20);
 
   const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
-    { role: "system", content: system },
+    { role: "system", content: systemWithKb },
     ...history.map((h) => ({ role: h.role, content: h.content })),
     { role: "user", content: message },
   ];
@@ -196,7 +278,45 @@ export async function chatWithAssistant(opts: {
     };
   }
 
-  const modelResp: ProviderChatResponse = parsed.data;
+  let modelResp: ProviderChatResponse = parsed.data;
+
+  // PR-07: Guard against occasional off-topic model replies (especially with OpenAI-compatible local providers).
+  // If the answer doesn't mention any meaningful token from the question, retry once with a stricter instruction.
+  if (looksIrrelevant(message, modelResp.reply)) {
+    try {
+      // Retry WITHOUT KB excerpts and WITHOUT the previous off-topic answer.
+      const retryMessages: Array<{ role: "system" | "user"; content: string }> = [
+        { role: "system", content: systemNoKb },
+        { role: "user", content: message },
+      ];
+
+      const raw2 = await openaiChatJson({ env, messages: retryMessages });
+      const parsed2 = ProviderChatResponseSchema.safeParse(raw2);
+      if (parsed2.success && !looksIrrelevant(message, parsed2.data.reply)) {
+        modelResp = parsed2.data;
+      }
+    } catch {
+      // keep the first response
+    }
+  }
+
+  // If even after retry the answer is still off-topic, fail safely.
+  // Returning a wrong-topic answer is worse than asking the user to rephrase.
+  if (looksIrrelevant(message, modelResp.reply)) {
+    const fallback =
+      locale === "en"
+        ? "Sorry, I couldn't reliably answer this question. Please rephrase it and try again."
+        : locale === "uk"
+          ? "Вибачте, не вдалося надійно відповісти на це питання. Спробуйте перефразувати запит і повторіть."
+          : "Извините, не удалось надёжно ответить на этот вопрос. Переформулируйте запрос и попробуйте ещё раз.";
+
+    modelResp = {
+      reply: fallback,
+      warnings: [],
+      safetyLevel: "normal",
+      sources: [],
+    } as ProviderChatResponse;
+  }
 
   const safetyLevel: SafetyLevel = maxSafety(modelResp.safetyLevel ?? "normal", triage.level);
   const warnings = Array.from(new Set([...(triage.warnings ?? []), ...((modelResp.warnings as any) ?? [])]));
