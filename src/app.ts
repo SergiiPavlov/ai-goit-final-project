@@ -5,6 +5,7 @@ import morgan from "morgan";
 import { createV1Router } from "./routes/v1";
 import { errorHandler, notFound } from "./middlewares/errorHandler";
 import { requestId } from "./middlewares/requestId";
+import { createMetricsStore, metricsMiddleware } from "./middlewares/metrics";
 import { parseAllowedOrigins, type AppEnv } from "./config/env";
 import { isOriginAllowedByAnyProject } from "./services/projects.service";
 
@@ -14,12 +15,16 @@ export function createApp(opts: { env: AppEnv }) {
   // expose env to request handlers (PR-04)
   app.locals.env = opts.env;
 
+  // PR-07: in-memory metrics store (exported via GET /v1/metrics)
+  app.locals.metrics = createMetricsStore();
+
   app.disable("x-powered-by");
 
   // Core middleware
   app.use(helmet());
   app.use(express.json({ limit: "1mb" }));
   app.use(requestId);
+  app.use(metricsMiddleware());
 
   // Logging with requestId
   morgan.token("rid", (req: any) => req.requestId ?? "-");

@@ -3,6 +3,7 @@ import { chatController } from "../controllers/chat.controller";
 import { healthController } from "../controllers/health.controller";
 import { versionController } from "../controllers/version.controller";
 import { publicConfigController } from "../controllers/publicConfig.controller";
+import { metricsController } from "../controllers/metrics.controller";
 import {
   createKbSourceController,
   deleteKbSourceController,
@@ -18,6 +19,9 @@ export function createV1Router(env: AppEnv) {
 
   v1Router.get("/health", healthController);
   v1Router.get("/version", versionController);
+
+  // PR-07: basic operational metrics (no auth; for local checks)
+  v1Router.get("/metrics", metricsController);
 
   // Project-scoped endpoints (PR-03: multi-tenant enforcement)
   const projectChain = [
