@@ -31,6 +31,7 @@ const ProviderChatResponseSchema = z.object({
 
 function tokenizeForRelevance(text: string) {
   const raw = (text || "")
+    .replace(/ё/g, "е")
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .split(" ")
@@ -92,18 +93,23 @@ function tokenizeForRelevance(text: string) {
 }
 
 function looksIrrelevant(question: string, answer: string) {
-  // Only enforce for actual questions; do not penalize smoke tests like "Тест smoke"
   const q = question || "";
-  const isQuestion = /[?？]/.test(q) || /^можно\s+ли\b/i.test(q) || /^can\s+i\b/i.test(q);
+  const qTokens = tokenizeForRelevance(q);
+  // Only enforce for actual questions or short topic prompts; do not penalize smoke tests like "Тест smoke"
+  const isQuestion =
+    /[?？]/.test(q) ||
+    /^можно\s+ли\b/i.test(q) ||
+    /^can\s+i\b/i.test(q) ||
+    (qTokens.length > 0 && q.trim().length <= 80);
   if (!isQuestion) return false;
 
-  const qTokens = tokenizeForRelevance(q);
   if (!qTokens.length) return false;
 
-  const a = (answer || "").toLowerCase();
+  const a = (answer || "").replace(/ё/g, "е").toLowerCase();
   for (const t of qTokens) {
     // Substring match is ok for RU morphology, e.g. "курить" vs "курение"
     if (a.includes(t)) return false;
+    if (t.length >= 5 && a.includes(t.slice(0, 3))) return false;
   }
   return true;
 }
@@ -220,12 +226,15 @@ export async function chatWithAssistant(opts: {
         {
           tag: "rag.debug",
           projectId: project.id,
+          projectKey: project.publicKey,
           locale,
+          query: message,
           mode: debug.mode,
           queryNormalized: debug.queryNormalized,
           sourcesFound: citations.length,
           chunksFound: debug.matchedChunks,
           totalChunks: debug.totalChunks,
+          excerptsLength: excerpts.length,
           topCandidates: debug.candidates,
         },
         null,
