@@ -1,12 +1,7 @@
 import dotenv from "dotenv";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { prisma } from "../prisma";
 
 dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 function getProjectKey() {
   return process.env.KB_PROJECT_KEY || process.env.PROJECT_KEY || "leleka-dev";
