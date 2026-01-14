@@ -147,7 +147,7 @@ function tokenizeQuery(q: string) {
 
 function scoreChunk(content: string, tokens: string[]) {
   if (!tokens.length) return { score: 0, matchedTokens: 0 };
-  const c = content.toLowerCase();
+  const c = content.toLowerCase().replace(/ё/g, "е");
   let score = 0;
   let matchedTokens = 0;
 
