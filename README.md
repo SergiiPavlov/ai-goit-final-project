@@ -156,3 +156,29 @@ Swagger spec is in `docs/openapi.yaml`.
 ## Notes
 - If `OPENAI_API_KEY` is not set, the server returns a deterministic stub reply (for reviewer-friendly local runs).
 - Seed (`npm run prisma:seed`) intentionally **overwrites** default project settings (systemPrompt + disclaimerTemplate), so environments stay consistent.
+
+## PR-08: KB seed + ingest scripts (RU)
+
+Repository includes a `kb/` folder with baseline documents. RU is populated now, UA/EN are placeholders.
+
+### Ingest KB from files
+
+```bash
+# optional: choose project and language
+# KB_PROJECT_KEY=leleka-dev KB_LANG=ru
+npm run kb:ingest
+```
+
+### Clear KB
+
+```bash
+npm run kb:clear
+```
+
+### Seed behavior
+
+`npm run prisma:seed` will also seed RU KB by default. Disable with:
+
+```bash
+SEED_KB=0 npm run prisma:seed
+```
