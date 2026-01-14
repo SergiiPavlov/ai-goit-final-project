@@ -44,10 +44,6 @@ function normalizeText(s?: string) {
   return safe.replace(/\s+/g, " ").trim();
 }
 
-function normalizeQueryForLog(query: string) {
-  return normalizeText(query).toLowerCase();
-}
-
 function chunkText(text: string, opts?: { maxLen?: number; overlap?: number }) {
   const maxLen = Math.max(200, opts?.maxLen ?? 1200);
   const overlap = Math.max(0, Math.min(maxLen - 50, opts?.overlap ?? 120));
@@ -65,6 +61,26 @@ function chunkText(text: string, opts?: { maxLen?: number; overlap?: number }) {
     i = Math.max(0, end - overlap);
   }
   return out;
+}
+
+const TOKEN_NORMALIZATION_MAP: Record<string, string> = {
+  курить: "курение",
+  курю: "курение",
+  курил: "курение",
+  курила: "курение",
+  курите: "курение",
+  куришь: "курение",
+  курят: "курение",
+  сигарета: "курение",
+  сигареты: "курение",
+  сигарет: "курение",
+  вейп: "курение",
+  табак: "курение",
+  никотин: "курение",
+};
+
+function normalizeTokens(tokens: string[]) {
+  return tokens.map((token) => TOKEN_NORMALIZATION_MAP[token] ?? token);
 }
 
 function tokenizeQuery(q: string) {
@@ -142,7 +158,12 @@ function tokenizeQuery(q: string) {
     "сроки",
   ]);
 
-  return raw.filter((t) => t.length >= 3 && !stop.has(t));
+  const tokens = raw.filter((t) => t.length >= 3 && !stop.has(t));
+  return normalizeTokens(tokens);
+}
+
+function normalizeQueryForLog(query: string) {
+  return tokenizeQuery(query).join(" ");
 }
 
 function scoreChunk(content: string, tokens: string[]) {

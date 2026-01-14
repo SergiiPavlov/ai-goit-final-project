@@ -157,6 +157,14 @@ Swagger spec is in `docs/openapi.yaml`.
 - If `OPENAI_API_KEY` is not set, the server returns a deterministic stub reply (for reviewer-friendly local runs).
 - Seed (`npm run prisma:seed`) intentionally **overwrites** default project settings (systemPrompt + disclaimerTemplate), so environments stay consistent.
 
+### Windows: Prisma EPERM during generate
+If `npm run dev` or `npx prisma generate` fails with `EPERM: operation not permitted, rename ... query_engine-windows.dll.node.tmpXXXX`,
+the Prisma engine file is likely locked. Try the following steps:
+
+1) Close running Node/ts-node-dev processes (Task Manager → End task).
+2) Add the repo folder to Windows Defender/AV exclusions.
+3) Delete the local Prisma cache (`node_modules/.prisma`) and run `npm run prisma:generate` again.
+
 ## PR-08: KB seed + ingest scripts (RU)
 
 Repository includes a `kb/` folder with baseline documents. RU is populated now, UA/EN are placeholders.
