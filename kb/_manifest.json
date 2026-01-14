@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "locale": "ru",
+      "title": "Курение при беременности",
+      "path": "ru/smoking.md",
+      "tags": ["pregnancy", "smoking", "nicotine"]
+    },
+    {
+      "locale": "ru",
+      "title": "Кофеин и кофе при беременности",
+      "path": "ru/caffeine.md",
+      "tags": ["pregnancy", "caffeine", "coffee"]
+    },
+    {
+      "locale": "ru",
+      "title": "Алкоголь при беременности",
+      "path": "ru/alcohol.md",
+      "tags": ["pregnancy", "alcohol"]
+    }
+  ]
+}
