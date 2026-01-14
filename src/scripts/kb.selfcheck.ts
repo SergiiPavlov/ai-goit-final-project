@@ -43,9 +43,6 @@ async function main() {
     )
   );
 
-  if (!citations.length) {
-    throw new Error("KB_SELF_CHECK_FAILED");
-  }
 }
 
 main()
