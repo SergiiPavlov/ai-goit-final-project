@@ -386,6 +386,38 @@ export async function retrieveKnowledgeCitations(opts: {
 
   const tokens = tokenizeQuery(query);
   if (!tokens.length) {
+    if (normalizedQuery) {
+      const sources = await prisma.knowledgeSource.findMany({
+        where: { projectId },
+        select: { id: true, title: true, url: true, text: true },
+      });
+      const fallback = sources.find((s) => {
+        const title = normalizeText(s.title).toLowerCase().replace(/ё/g, "е");
+        return title.includes(normalizedQuery) || normalizedQuery.includes(title);
+      });
+      if (fallback) {
+        const snippet = buildSnippet(fallback.text, query);
+        return {
+          excerpts: `[#1] ${fallback.title}${fallback.url ? ` (${fallback.url})` : ""}\n${fallback.text}`,
+          citations: [
+            {
+              sourceId: fallback.id,
+              title: fallback.title,
+              url: fallback.url,
+              snippet,
+            },
+          ],
+          debug: {
+            mode: "lexical",
+            queryNormalized,
+            matchedChunks: 0,
+            totalChunks: 0,
+            candidates: [{ chunkId: fallback.id, sourceTitle: fallback.title, score: 1 }],
+          },
+        };
+      }
+    }
+
     return {
       excerpts: "",
       citations: [],
