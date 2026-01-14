@@ -309,6 +309,7 @@ export async function retrieveKnowledgeCitations(opts: {
   const { projectId, query } = opts;
   const limit = Math.max(1, Math.min(8, opts.limit ?? 4));
   const queryNormalized = normalizeQueryForLog(query);
+  const normalizedQuery = normalizeText(query).toLowerCase().replace(/ё/g, "е");
 
   // PR-02: vector search path (requires pgvector extension and embeddings backfilled)
   if (opts.queryEmbedding && opts.queryEmbedding.length) {
@@ -412,6 +413,38 @@ export async function retrieveKnowledgeCitations(opts: {
   });
 
   if (!all.length) {
+    if (normalizedQuery) {
+      const sources = await prisma.knowledgeSource.findMany({
+        where: { projectId },
+        select: { id: true, title: true, url: true, text: true },
+      });
+      const fallback = sources.find((s) => {
+        const title = normalizeText(s.title).toLowerCase().replace(/ё/g, "е");
+        return title.includes(normalizedQuery) || normalizedQuery.includes(title);
+      });
+      if (fallback) {
+        const snippet = buildSnippet(fallback.text, query);
+        return {
+          excerpts: `[#1] ${fallback.title}${fallback.url ? ` (${fallback.url})` : ""}\n${fallback.text}`,
+          citations: [
+            {
+              sourceId: fallback.id,
+              title: fallback.title,
+              url: fallback.url,
+              snippet,
+            },
+          ],
+          debug: {
+            mode: "lexical",
+            queryNormalized,
+            matchedChunks: 0,
+            totalChunks: 0,
+            candidates: [{ chunkId: fallback.id, sourceTitle: fallback.title, score: 1 }],
+          },
+        };
+      }
+    }
+
     return {
       excerpts: "",
       citations: [],
@@ -424,7 +457,6 @@ export async function retrieveKnowledgeCitations(opts: {
       },
     };
   }
-
   const scored = all
     .map((c) => {
       const byContent = scoreChunk(c.content, tokens);
@@ -438,6 +470,16 @@ export async function retrieveKnowledgeCitations(opts: {
     // guard: do not return "default" sources when there is no real lexical overlap
     .filter((x) => x.matchedTokens > 0 && x.score >= (tokens.length <= 1 ? 1 : 2))
     .sort((a, b) => b.score - a.score);
+
+  if (!scored.length && normalizedQuery) {
+    const fallback = all.find((c) => {
+      const title = normalizeText(c.source.title).toLowerCase().replace(/ё/g, "е");
+      return title.includes(normalizedQuery) || normalizedQuery.includes(title);
+    });
+    if (fallback) {
+      scored.push({ c: fallback, score: 1, matchedTokens: 1 });
+    }
+  }
 
   const picked: ChunkWithSource[] = [];
   const seenSource = new Set<string>();
