@@ -436,7 +436,7 @@ export async function retrieveKnowledgeCitations(opts: {
       };
     })
     // guard: do not return "default" sources when there is no real lexical overlap
-    .filter((x) => x.matchedTokens > 0 && x.score >= 2)
+    .filter((x) => x.matchedTokens > 0 && x.score >= (tokens.length <= 1 ? 1 : 2))
     .sort((a, b) => b.score - a.score);
 
   const picked: ChunkWithSource[] = [];

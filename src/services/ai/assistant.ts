@@ -92,12 +92,16 @@ function tokenizeForRelevance(text: string) {
 }
 
 function looksIrrelevant(question: string, answer: string) {
-  // Only enforce for actual questions; do not penalize smoke tests like "Тест smoke"
   const q = question || "";
-  const isQuestion = /[?？]/.test(q) || /^можно\s+ли\b/i.test(q) || /^can\s+i\b/i.test(q);
+  const qTokens = tokenizeForRelevance(q);
+  // Only enforce for actual questions or short topic prompts; do not penalize smoke tests like "Тест smoke"
+  const isQuestion =
+    /[?？]/.test(q) ||
+    /^можно\s+ли\b/i.test(q) ||
+    /^can\s+i\b/i.test(q) ||
+    (qTokens.length > 0 && q.trim().length <= 80);
   if (!isQuestion) return false;
 
-  const qTokens = tokenizeForRelevance(q);
   if (!qTokens.length) return false;
 
   const a = (answer || "").toLowerCase();
