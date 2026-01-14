@@ -18,6 +18,19 @@ export type KnowledgeCitation = {
   url: string | null;
 };
 
+export type KnowledgeRetrievalDebug = {
+  mode: "vector" | "lexical";
+  queryNormalized: string;
+  matchedChunks: number;
+  totalChunks?: number;
+  candidates: Array<{
+    chunkId: string;
+    sourceTitle: string;
+    score: number;
+    distance?: number;
+  }>;
+};
+
 type ChunkWithSource = {
   id: string;
   content: string;
@@ -29,6 +42,10 @@ function normalizeText(s?: string) {
   // Defensive: ingestion scripts should never crash on empty/undefined inputs.
   const safe = (s ?? "").toString();
   return safe.replace(/\s+/g, " ").trim();
+}
+
+function normalizeQueryForLog(query: string) {
+  return normalizeText(query).toLowerCase();
 }
 
 function chunkText(text: string, opts?: { maxLen?: number; overlap?: number }) {
@@ -288,9 +305,10 @@ export async function retrieveKnowledgeCitations(opts: {
   query: string;
   queryEmbedding?: number[];
   limit?: number;
-}): Promise<{ excerpts: string; citations: KnowledgeCitation[] }> {
+}): Promise<{ excerpts: string; citations: KnowledgeCitation[]; debug: KnowledgeRetrievalDebug }> {
   const { projectId, query } = opts;
   const limit = Math.max(1, Math.min(8, opts.limit ?? 4));
+  const queryNormalized = normalizeQueryForLog(query);
 
   // PR-02: vector search path (requires pgvector extension and embeddings backfilled)
   if (opts.queryEmbedding && opts.queryEmbedding.length) {
@@ -303,6 +321,7 @@ export async function retrieveKnowledgeCitations(opts: {
       const rows = (await prisma.$queryRaw(
         Prisma.sql`
           SELECT
+            c."id" as "chunkId",
             c."content" as "content",
             s."id" as "sourceId",
             s."title" as "title",
@@ -316,6 +335,7 @@ export async function retrieveKnowledgeCitations(opts: {
           LIMIT ${limit}
         `
       )) as Array<{
+        chunkId: string;
         content: string;
         sourceId: string;
         title: string;
@@ -342,7 +362,21 @@ export async function retrieveKnowledgeCitations(opts: {
           })
           .join("\n\n---\n\n");
 
-        return { excerpts, citations };
+        return {
+          excerpts,
+          citations,
+          debug: {
+            mode: "vector",
+            queryNormalized,
+            matchedChunks: rows.length,
+            candidates: rows.slice(0, 3).map((r) => ({
+              chunkId: r.chunkId,
+              sourceTitle: r.title,
+              score: Number.isFinite(r.distance) ? Math.max(0, 1 - r.distance) : 0,
+              distance: r.distance,
+            })),
+          },
+        };
       }
     } catch {
       // Fall through to lexical retrieval.
@@ -351,7 +385,17 @@ export async function retrieveKnowledgeCitations(opts: {
 
   const tokens = tokenizeQuery(query);
   if (!tokens.length) {
-    return { excerpts: "", citations: [] };
+    return {
+      excerpts: "",
+      citations: [],
+      debug: {
+        mode: "lexical",
+        queryNormalized,
+        matchedChunks: 0,
+        totalChunks: 0,
+        candidates: [],
+      },
+    };
   }
 
   // For a small educational project: load up to N chunks and score in memory.
@@ -368,7 +412,17 @@ export async function retrieveKnowledgeCitations(opts: {
   });
 
   if (!all.length) {
-    return { excerpts: "", citations: [] };
+    return {
+      excerpts: "",
+      citations: [],
+      debug: {
+        mode: "lexical",
+        queryNormalized,
+        matchedChunks: 0,
+        totalChunks: 0,
+        candidates: [],
+      },
+    };
   }
 
   const scored = all
@@ -416,5 +470,19 @@ export async function retrieveKnowledgeCitations(opts: {
     })
     .join("\n\n---\n\n");
 
-  return { excerpts, citations };
+  return {
+    excerpts,
+    citations,
+    debug: {
+      mode: "lexical",
+      queryNormalized,
+      matchedChunks: scored.length,
+      totalChunks: all.length,
+      candidates: scored.slice(0, 3).map((s) => ({
+        chunkId: s.c.id,
+        sourceTitle: s.c.source.title,
+        score: s.score,
+      })),
+    },
+  };
 }
