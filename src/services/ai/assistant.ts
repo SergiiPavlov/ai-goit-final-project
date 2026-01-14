@@ -206,12 +206,33 @@ export async function chatWithAssistant(opts: {
     }
   }
 
-  const { excerpts, citations } = await retrieveKnowledgeCitations({
+  const { excerpts, citations, debug } = await retrieveKnowledgeCitations({
     projectId: project.id,
     query: message,
     queryEmbedding,
     limit: 4,
   });
+
+  if (process.env.RAG_DEBUG === "1") {
+    // eslint-disable-next-line no-console
+    console.log(
+      JSON.stringify(
+        {
+          tag: "rag.debug",
+          projectId: project.id,
+          locale,
+          mode: debug.mode,
+          queryNormalized: debug.queryNormalized,
+          sourcesFound: citations.length,
+          chunksFound: debug.matchedChunks,
+          totalChunks: debug.totalChunks,
+          topCandidates: debug.candidates,
+        },
+        null,
+        2
+      )
+    );
+  }
 
   const systemWithKb = buildSystemPrompt({ project, locale, context, knowledgeExcerpts: excerpts });
   const systemNoKb =

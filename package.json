@@ -15,7 +15,8 @@
     "prisma:studio": "prisma studio",
     "kb:backfill-embeddings": "ts-node-dev --transpile-only src/scripts/kbBackfillEmbeddings.ts",
     "kb:ingest": "tsx src/scripts/kb.ingest.ts",
-    "kb:clear": "tsx src/scripts/kb.clear.ts"
+    "kb:clear": "tsx src/scripts/kb.clear.ts",
+    "kb:self-check": "tsx src/scripts/kb.selfcheck.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
