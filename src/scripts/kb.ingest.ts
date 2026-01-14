@@ -97,7 +97,7 @@ async function main() {
     }
 
     try {
-      await createKnowledgeSource(project.id, { title, url: null, text: md });
+      await createKnowledgeSource({ projectId: project.id, title, url: null, text: md });
       if (existing) updated++;
       else created++;
     } catch (err: any) {
