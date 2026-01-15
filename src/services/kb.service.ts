@@ -18,6 +18,19 @@ export type KnowledgeCitation = {
   url: string | null;
 };
 
+export type KnowledgeRetrievalDebug = {
+  mode: "vector" | "lexical";
+  queryNormalized: string;
+  matchedChunks: number;
+  totalChunks?: number;
+  candidates: Array<{
+    chunkId: string;
+    sourceTitle: string;
+    score: number;
+    distance?: number;
+  }>;
+};
+
 type ChunkWithSource = {
   id: string;
   content: string;
@@ -48,6 +61,26 @@ function chunkText(text: string, opts?: { maxLen?: number; overlap?: number }) {
     i = Math.max(0, end - overlap);
   }
   return out;
+}
+
+const TOKEN_NORMALIZATION_MAP: Record<string, string> = {
+  курить: "курение",
+  курю: "курение",
+  курил: "курение",
+  курила: "курение",
+  курите: "курение",
+  куришь: "курение",
+  курят: "курение",
+  сигарета: "курение",
+  сигареты: "курение",
+  сигарет: "курение",
+  вейп: "курение",
+  табак: "курение",
+  никотин: "курение",
+};
+
+function normalizeTokens(tokens: string[]) {
+  return tokens.map((token) => TOKEN_NORMALIZATION_MAP[token] ?? token);
 }
 
 function tokenizeQuery(q: string) {
@@ -125,12 +158,17 @@ function tokenizeQuery(q: string) {
     "сроки",
   ]);
 
-  return raw.filter((t) => t.length >= 3 && !stop.has(t));
+  const tokens = raw.filter((t) => t.length >= 3 && !stop.has(t));
+  return normalizeTokens(tokens);
+}
+
+function normalizeQueryForLog(query: string) {
+  return tokenizeQuery(query).join(" ");
 }
 
 function scoreChunk(content: string, tokens: string[]) {
   if (!tokens.length) return { score: 0, matchedTokens: 0 };
-  const c = content.toLowerCase();
+  const c = content.toLowerCase().replace(/ё/g, "е");
   let score = 0;
   let matchedTokens = 0;
 
@@ -288,9 +326,11 @@ export async function retrieveKnowledgeCitations(opts: {
   query: string;
   queryEmbedding?: number[];
   limit?: number;
-}): Promise<{ excerpts: string; citations: KnowledgeCitation[] }> {
+}): Promise<{ excerpts: string; citations: KnowledgeCitation[]; debug: KnowledgeRetrievalDebug }> {
   const { projectId, query } = opts;
   const limit = Math.max(1, Math.min(8, opts.limit ?? 4));
+  const queryNormalized = normalizeQueryForLog(query);
+  const normalizedQuery = normalizeText(query).toLowerCase().replace(/ё/g, "е");
 
   // PR-02: vector search path (requires pgvector extension and embeddings backfilled)
   if (opts.queryEmbedding && opts.queryEmbedding.length) {
@@ -303,6 +343,7 @@ export async function retrieveKnowledgeCitations(opts: {
       const rows = (await prisma.$queryRaw(
         Prisma.sql`
           SELECT
+            c."id" as "chunkId",
             c."content" as "content",
             s."id" as "sourceId",
             s."title" as "title",
@@ -316,6 +357,7 @@ export async function retrieveKnowledgeCitations(opts: {
           LIMIT ${limit}
         `
       )) as Array<{
+        chunkId: string;
         content: string;
         sourceId: string;
         title: string;
@@ -342,7 +384,21 @@ export async function retrieveKnowledgeCitations(opts: {
           })
           .join("\n\n---\n\n");
 
-        return { excerpts, citations };
+        return {
+          excerpts,
+          citations,
+          debug: {
+            mode: "vector",
+            queryNormalized,
+            matchedChunks: rows.length,
+            candidates: rows.slice(0, 3).map((r) => ({
+              chunkId: r.chunkId,
+              sourceTitle: r.title,
+              score: Number.isFinite(r.distance) ? Math.max(0, 1 - r.distance) : 0,
+              distance: r.distance,
+            })),
+          },
+        };
       }
     } catch {
       // Fall through to lexical retrieval.
@@ -351,7 +407,49 @@ export async function retrieveKnowledgeCitations(opts: {
 
   const tokens = tokenizeQuery(query);
   if (!tokens.length) {
-    return { excerpts: "", citations: [] };
+    if (normalizedQuery) {
+      const sources = await prisma.knowledgeSource.findMany({
+        where: { projectId },
+        select: { id: true, title: true, url: true, text: true },
+      });
+      const fallback = sources.find((s) => {
+        const title = normalizeText(s.title).toLowerCase().replace(/ё/g, "е");
+        return title.includes(normalizedQuery) || normalizedQuery.includes(title);
+      });
+      if (fallback) {
+        const snippet = buildSnippet(fallback.text, query);
+        return {
+          excerpts: `[#1] ${fallback.title}${fallback.url ? ` (${fallback.url})` : ""}\n${fallback.text}`,
+          citations: [
+            {
+              sourceId: fallback.id,
+              title: fallback.title,
+              url: fallback.url,
+              snippet,
+            },
+          ],
+          debug: {
+            mode: "lexical",
+            queryNormalized,
+            matchedChunks: 0,
+            totalChunks: 0,
+            candidates: [{ chunkId: fallback.id, sourceTitle: fallback.title, score: 1 }],
+          },
+        };
+      }
+    }
+
+    return {
+      excerpts: "",
+      citations: [],
+      debug: {
+        mode: "lexical",
+        queryNormalized,
+        matchedChunks: 0,
+        totalChunks: 0,
+        candidates: [],
+      },
+    };
   }
 
   // For a small educational project: load up to N chunks and score in memory.
@@ -368,9 +466,50 @@ export async function retrieveKnowledgeCitations(opts: {
   });
 
   if (!all.length) {
-    return { excerpts: "", citations: [] };
-  }
+    if (normalizedQuery) {
+      const sources = await prisma.knowledgeSource.findMany({
+        where: { projectId },
+        select: { id: true, title: true, url: true, text: true },
+      });
+      const fallback = sources.find((s) => {
+        const title = normalizeText(s.title).toLowerCase().replace(/ё/g, "е");
+        return title.includes(normalizedQuery) || normalizedQuery.includes(title);
+      });
+      if (fallback) {
+        const snippet = buildSnippet(fallback.text, query);
+        return {
+          excerpts: `[#1] ${fallback.title}${fallback.url ? ` (${fallback.url})` : ""}\n${fallback.text}`,
+          citations: [
+            {
+              sourceId: fallback.id,
+              title: fallback.title,
+              url: fallback.url,
+              snippet,
+            },
+          ],
+          debug: {
+            mode: "lexical",
+            queryNormalized,
+            matchedChunks: 0,
+            totalChunks: 0,
+            candidates: [{ chunkId: fallback.id, sourceTitle: fallback.title, score: 1 }],
+          },
+        };
+      }
+    }
 
+    return {
+      excerpts: "",
+      citations: [],
+      debug: {
+        mode: "lexical",
+        queryNormalized,
+        matchedChunks: 0,
+        totalChunks: 0,
+        candidates: [],
+      },
+    };
+  }
   const scored = all
     .map((c) => {
       const byContent = scoreChunk(c.content, tokens);
@@ -382,8 +521,18 @@ export async function retrieveKnowledgeCitations(opts: {
       };
     })
     // guard: do not return "default" sources when there is no real lexical overlap
-    .filter((x) => x.matchedTokens > 0 && x.score >= 2)
+    .filter((x) => x.matchedTokens > 0 && x.score >= (tokens.length <= 1 ? 1 : 2))
     .sort((a, b) => b.score - a.score);
+
+  if (!scored.length && normalizedQuery) {
+    const fallback = all.find((c) => {
+      const title = normalizeText(c.source.title).toLowerCase().replace(/ё/g, "е");
+      return title.includes(normalizedQuery) || normalizedQuery.includes(title);
+    });
+    if (fallback) {
+      scored.push({ c: fallback, score: 1, matchedTokens: 1 });
+    }
+  }
 
   const picked: ChunkWithSource[] = [];
   const seenSource = new Set<string>();
@@ -416,5 +565,19 @@ export async function retrieveKnowledgeCitations(opts: {
     })
     .join("\n\n---\n\n");
 
-  return { excerpts, citations };
+  return {
+    excerpts,
+    citations,
+    debug: {
+      mode: "lexical",
+      queryNormalized,
+      matchedChunks: scored.length,
+      totalChunks: all.length,
+      candidates: scored.slice(0, 3).map((s) => ({
+        chunkId: s.c.id,
+        sourceTitle: s.c.source.title,
+        score: s.score,
+      })),
+    },
+  };
 }

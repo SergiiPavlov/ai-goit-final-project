@@ -31,6 +31,7 @@ const ProviderChatResponseSchema = z.object({
 
 function tokenizeForRelevance(text: string) {
   const raw = (text || "")
+    .replace(/ё/g, "е")
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .split(" ")
@@ -92,18 +93,23 @@ function tokenizeForRelevance(text: string) {
 }
 
 function looksIrrelevant(question: string, answer: string) {
-  // Only enforce for actual questions; do not penalize smoke tests like "Тест smoke"
   const q = question || "";
-  const isQuestion = /[?？]/.test(q) || /^можно\s+ли\b/i.test(q) || /^can\s+i\b/i.test(q);
+  const qTokens = tokenizeForRelevance(q);
+  // Only enforce for actual questions or short topic prompts; do not penalize smoke tests like "Тест smoke"
+  const isQuestion =
+    /[?？]/.test(q) ||
+    /^можно\s+ли\b/i.test(q) ||
+    /^can\s+i\b/i.test(q) ||
+    (qTokens.length > 0 && q.trim().length <= 80);
   if (!isQuestion) return false;
 
-  const qTokens = tokenizeForRelevance(q);
   if (!qTokens.length) return false;
 
-  const a = (answer || "").toLowerCase();
+  const a = (answer || "").replace(/ё/g, "е").toLowerCase();
   for (const t of qTokens) {
     // Substring match is ok for RU morphology, e.g. "курить" vs "курение"
     if (a.includes(t)) return false;
+    if (t.length >= 5 && a.includes(t.slice(0, 3))) return false;
   }
   return true;
 }
@@ -169,6 +175,44 @@ function ensureDisclaimer(reply: string, disclaimer: string) {
   return `${r}\n\n${d}`;
 }
 
+function pickKbFallbackAnswer(opts: { excerpts: string; locale: "ru" | "uk" | "en"; question: string }) {
+  const { excerpts, locale, question } = opts;
+  const cleaned = (excerpts || "").trim();
+  if (!cleaned) return "";
+
+  // Remove leading [#N] header(s) and keep only the first excerpt body.
+  const firstBlock = cleaned.split(/\n\n---\n\n/)[0] ?? cleaned;
+  const lines = firstBlock.split("\n");
+  const body = lines
+    .filter((_, idx) => idx !== 0) // drop header line
+    .join("\n")
+    .trim();
+
+  const text = body.replace(/\s+/g, " ").trim();
+  if (!text) return "";
+
+  // Keep first 1–2 sentences (deterministic, no LLM dependency).
+  const parts = text.split(/(?<=[.!?…])\s+/);
+  const picked = parts.slice(0, 2).join(" ").trim();
+  const short = (picked || parts[0] || text).slice(0, 520).trim();
+
+  // Ensure the answer mentions at least one meaningful token from the question (topic anchoring).
+  const qTokens = tokenizeForRelevance(question);
+  const lower = short.toLowerCase();
+  const anchored = qTokens.some((t) => lower.includes(t) || (t.length >= 5 && lower.includes(t.slice(0, 3))));
+
+  if (anchored) return short;
+
+  // If not anchored, prepend a tiny topic reminder (still deterministic).
+  const prefix =
+    locale === "en"
+      ? "About your question: "
+      : locale === "uk"
+        ? "Щодо вашого питання: "
+        : "По вашему вопросу: ";
+  return (prefix + short).slice(0, 560).trim();
+}
+
 function normalizeCitations(citations: KnowledgeCitation[]) {
   // Deduplicate by (sourceId + snippet) to keep output stable.
   const seen = new Set<string>();
@@ -206,12 +250,36 @@ export async function chatWithAssistant(opts: {
     }
   }
 
-  const { excerpts, citations } = await retrieveKnowledgeCitations({
+  const { excerpts, citations, debug } = await retrieveKnowledgeCitations({
     projectId: project.id,
     query: message,
     queryEmbedding,
     limit: 4,
   });
+
+  if (process.env.RAG_DEBUG === "1") {
+    // eslint-disable-next-line no-console
+    console.log(
+      JSON.stringify(
+        {
+          tag: "rag.debug",
+          projectId: project.id,
+          projectKey: project.publicKey,
+          locale,
+          query: message,
+          mode: debug.mode,
+          queryNormalized: debug.queryNormalized,
+          sourcesFound: citations.length,
+          chunksFound: debug.matchedChunks,
+          totalChunks: debug.totalChunks,
+          excerptsLength: excerpts.length,
+          topCandidates: debug.candidates,
+        },
+        null,
+        2
+      )
+    );
+  }
 
   const systemWithKb = buildSystemPrompt({ project, locale, context, knowledgeExcerpts: excerpts });
   const systemNoKb =
@@ -227,16 +295,17 @@ export async function chatWithAssistant(opts: {
     { role: "user", content: message },
   ];
 
-  // If provider is not configured, fall back to a deterministic response (keeps demo stable for reviewers).
+  // If provider is not configured, fall back to a deterministic KB-based response (keeps demo stable for reviewers).
   if (!env.OPENAI_API_KEY) {
-    const reply = ensureDisclaimer(
-      locale === "en"
+    const fallback = citations.length
+      ? pickKbFallbackAnswer({ excerpts, locale, question: message })
+      : locale === "en"
         ? "AI provider is not configured on this server. Add OPENAI_API_KEY to enable live responses."
         : locale === "uk"
           ? "AI-провайдер не налаштований на цьому сервері. Додайте OPENAI_API_KEY, щоб увімкнути відповіді."
-          : "AI‑провайдер не настроен на этом сервере. Добавьте OPENAI_API_KEY, чтобы включить ответы.",
-      project.disclaimerTemplate
-    );
+          : "AI‑провайдер не настроен на этом сервере. Добавьте OPENAI_API_KEY, чтобы включить ответы.";
+
+    const reply = ensureDisclaimer(fallback, project.disclaimerTemplate);
 
     return {
       reply,
@@ -303,7 +372,12 @@ export async function chatWithAssistant(opts: {
   // If even after retry the answer is still off-topic, fail safely.
   // Returning a wrong-topic answer is worse than asking the user to rephrase.
   if (looksIrrelevant(message, modelResp.reply)) {
-    const fallback =
+    // Prefer KB-based deterministic answer if we have relevant excerpts.
+    const kbFallback = citations.length ? pickKbFallbackAnswer({ excerpts, locale, question: message }) : "";
+
+    const fallback = kbFallback
+      ? kbFallback
+      :
       locale === "en"
         ? "Sorry, I couldn't reliably answer this question. Please rephrase it and try again."
         : locale === "uk"
@@ -316,6 +390,18 @@ export async function chatWithAssistant(opts: {
       safetyLevel: "normal",
       sources: [],
     } as ProviderChatResponse;
+  }
+
+  // If provider answered "generic" (e.g., only "consult a doctor") while we do have KB citations,
+  // override with a deterministic KB excerpt answer. This makes the demo stable even if the model drifts.
+  if (citations.length && looksIrrelevant(message, modelResp.reply)) {
+    const kb = pickKbFallbackAnswer({ excerpts, locale, question: message });
+    if (kb) {
+      modelResp = {
+        ...modelResp,
+        reply: kb,
+      };
+    }
   }
 
   const safetyLevel: SafetyLevel = maxSafety(modelResp.safetyLevel ?? "normal", triage.level);
