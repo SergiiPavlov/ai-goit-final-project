@@ -190,3 +190,28 @@ npm run kb:clear
 ```bash
 SEED_KB=0 npm run prisma:seed
 ```
+
+
+## Проверка виджета локально (встраивание как на другом сайте)
+
+1) Запустите API-сервер (в одном терминале):
+```bash
+npm run dev
+```
+
+2) В другом терминале поднимите статический сервер для тестовой страницы (порт 5500):
+```bash
+npm run serve:widget
+```
+
+3) Откройте в браузере:
+- http://localhost:5500/test-widget.html
+
+Если виджет не загрузился и в Network/Console видно CORS/403 — добавьте origin в allowlist проекта:
+
+```bash
+npm run project:add-origin -- --project=leleka-dev --origin=http://localhost:5500
+```
+
+Важно про микрофон (голосовой ввод): браузер требует “безопасный контекст”.
+Для локальной проверки используйте именно `http://localhost:5500/...` (а не IP), либо HTTPS в проде.

@@ -16,12 +16,78 @@
   /** @type {HTMLButtonElement} */
   const btnSend = document.getElementById("btnSend");
   /** @type {HTMLButtonElement} */
+  const btnMic = document.getElementById("btnMic");
+  /** @type {HTMLButtonElement} */
   const btnConfig = document.getElementById("btnConfig");
   /** @type {HTMLButtonElement} */
   const btnClear = document.getElementById("btnClear");
 
   const baseUrl = window.location.origin;
   baseUrlEl.value = baseUrl;
+
+  function mapLocaleToSpeechLang(locale) {
+    const l = String(locale || "").toLowerCase();
+    if (l === "uk" || l === "ua" || l.startsWith("uk-")) return "uk-UA";
+    if (l === "en" || l.startsWith("en-")) return "en-US";
+    // default
+    return "ru-RU";
+  }
+
+  function getSpeechRecognition() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return null;
+    try {
+      return new SR();
+    } catch {
+      return null;
+    }
+  }
+
+  function setupVoiceInput() {
+    if (!btnMic) return;
+    const recognition = getSpeechRecognition();
+    if (!recognition) {
+      btnMic.disabled = true;
+      btnMic.title = "Voice input is not supported in this browser";
+      return;
+    }
+
+    let isListening = false;
+
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    function setUi(listening) {
+      isListening = listening;
+      btnMic.textContent = listening ? "Stop" : "Voice";
+      btnMic.classList.toggle("primary", listening);
+    }
+
+    recognition.onstart = () => setUi(true);
+    recognition.onend = () => setUi(false);
+    recognition.onerror = (e) => {
+      setUi(false);
+      renderError("Voice input error", String((e && e.error) || e));
+    };
+    recognition.onresult = (event) => {
+      let transcript = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      messageEl.value = transcript.trim();
+    };
+
+    btnMic.addEventListener("click", () => {
+      clearOutput();
+      recognition.lang = mapLocaleToSpeechLang(localeEl.value);
+      try {
+        if (isListening) recognition.stop();
+        else recognition.start();
+      } catch (e) {
+        renderError("Voice input error", String(e));
+      }
+    });
+  }
 
   function clearOutput() {
     jsonEl.textContent = "";
@@ -105,6 +171,8 @@
   btnClear.addEventListener("click", () => {
     clearOutput();
   });
+
+  setupVoiceInput();
 
   btnConfig.addEventListener("click", async () => {
     clearOutput();

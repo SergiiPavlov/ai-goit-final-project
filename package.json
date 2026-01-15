@@ -16,7 +16,9 @@
     "kb:backfill-embeddings": "ts-node-dev --transpile-only src/scripts/kbBackfillEmbeddings.ts",
     "kb:ingest": "tsx src/scripts/kb.ingest.ts",
     "kb:clear": "tsx src/scripts/kb.clear.ts",
-    "kb:self-check": "tsx src/scripts/kb.selfcheck.ts"
+    "kb:self-check": "tsx src/scripts/kb.selfcheck.ts",
+    "serve:widget": "npx http-server . -p 5500",
+    "project:add-origin": "tsx src/scripts/project.add-origin.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

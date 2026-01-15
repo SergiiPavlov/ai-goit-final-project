@@ -36,6 +36,11 @@
   display: none;
 }
 
+/* Isolate the widget from host-page box sizing / layout rules */
+.lw-overlay, .lw-overlay * {
+  box-sizing: border-box;
+}
+
 .lw-overlay.lw-open {
   display: block;
 }
@@ -83,7 +88,7 @@
   font: 700 16px/1 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   color: var(--lw-muted);
   padding: 6px 10px;
-  border-radius: 10px;
+  border-radius: 12px;
 }
 
 .lw-close:hover { background: rgba(17,24,39,0.06); }
@@ -135,28 +140,70 @@
 .lw-footer {
   border-top: 1px solid var(--lw-border);
   padding: 10px;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-  align-items: end;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.lw-inputwrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.lw-mic {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--lw-border);
+  border-radius: 12px;
+  cursor: pointer;
+  color: var(--lw-fg);
+  background: rgba(17,24,39,0.02);
+}
+
+.lw-mic__icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.lw-mic:hover { background: rgba(17,24,39,0.06); }
+
+.lw-mic[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.lw-mic--active {
+  border-color: rgba(37,99,235,0.5);
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
 }
 
 .lw-input {
   width: 100%;
+  min-width: 0;
   resize: none;
   border: 1px solid var(--lw-border);
   border-radius: 12px;
-  padding: 10px 10px;
+  padding: 10px;
+  min-height: 40px;
   font: 400 13px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   outline: none;
 }
 
 .lw-input:focus {
   border-color: rgba(37,99,235,0.5);
-  box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+  /* Keep focus visible but avoid "covering" neighbour buttons */
+  box-shadow: 0 0 0 2px rgba(37,99,235,0.10);
 }
 
 .lw-send {
+  position: relative;
+  z-index: 1;
   border: 0;
   border-radius: 12px;
   padding: 10px 12px;
