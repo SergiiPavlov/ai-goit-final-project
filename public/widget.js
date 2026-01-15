@@ -80,7 +80,26 @@
     history: [],
     isOpen: false,
     isBusy: false,
+    isListening: false,
   };
+
+  function mapLocaleToSpeechLang(locale) {
+    var l = String(locale || "").toLowerCase();
+    if (l === "uk" || l === "ua" || l.startsWith("uk-")) return "uk-UA";
+    if (l === "en" || l.startsWith("en-")) return "en-US";
+    // default
+    return "ru-RU";
+  }
+
+  function getSpeechRecognition() {
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return null;
+    try {
+      return new SR();
+    } catch (e) {
+      return null;
+    }
+  }
 
   function fetchJson(url, opts) {
     return fetch(url, opts).then(function (r) {
@@ -169,8 +188,10 @@
   function setBusy(isBusy) {
     state.isBusy = isBusy;
     var btn = byId("leleka-widget-send");
+    var mic = byId("leleka-widget-mic");
     var input = byId("leleka-widget-input");
     if (btn) btn.disabled = isBusy;
+    if (mic) mic.disabled = isBusy;
     if (input) input.disabled = isBusy;
   }
 
@@ -210,12 +231,25 @@
           el("div", { id: "leleka-widget-meta", class: "lw-meta" }),
         ]),
         el("div", { class: "lw-footer" }, [
-          el("textarea", {
-            id: "leleka-widget-input",
-            class: "lw-input",
-            rows: "2",
-            placeholder: "Напишите вопрос…",
+          el("button", {
+            id: "leleka-widget-mic",
+            class: "lw-mic",
+            type: "button",
+            html:
+              '<svg class="lw-mic__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+              '<path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/>' +
+              "</svg>",
+            title: "Голосовой ввод (если поддерживается браузером)",
+            "aria-label": "Голосовой ввод",
           }),
+          el("div", { class: "lw-inputwrap" }, [
+            el("textarea", {
+              id: "leleka-widget-input",
+              class: "lw-input",
+              rows: "2",
+              placeholder: "Напишите вопрос…",
+            }),
+          ]),
           el("button", { id: "leleka-widget-send", class: "lw-send", type: "button", text: "Отправить" }),
         ]),
         el("div", { id: "leleka-widget-disclaimer", class: "lw-disclaimer" }),
@@ -236,7 +270,90 @@
     });
 
     var sendBtn = byId("leleka-widget-send");
+    var micBtn = byId("leleka-widget-mic");
     var input = byId("leleka-widget-input");
+
+    var MIC_ICON =
+      '<svg class="lw-mic__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+      '<path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/>' +
+      "</svg>";
+    var STOP_ICON =
+      '<svg class="lw-mic__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+      '<path d="M6 6h12v12H6z"/>' +
+      "</svg>";
+
+    function setMicState(listening) {
+      if (!micBtn) return;
+      if (listening) {
+        micBtn.classList.add("lw-mic--active");
+        micBtn.innerHTML = STOP_ICON;
+        micBtn.title = "Остановить диктовку";
+        micBtn.setAttribute("aria-label", "Остановить диктовку");
+      } else {
+        micBtn.classList.remove("lw-mic--active");
+        micBtn.innerHTML = MIC_ICON;
+        micBtn.title = "Голосовой ввод (если поддерживается браузером)";
+        micBtn.setAttribute("aria-label", "Голосовой ввод");
+      }
+    }
+
+    // Ensure initial icon/state
+    setMicState(false);
+
+    // Voice input (SpeechRecognition API)
+    var recognition = getSpeechRecognition();
+    if (micBtn) {
+      if (!recognition) {
+        micBtn.disabled = true;
+        micBtn.title = "Голосовой ввод недоступен в этом браузере";
+      } else {
+        recognition.interimResults = true;
+        recognition.continuous = false;
+
+        recognition.onstart = function () {
+          state.isListening = true;
+          setMicState(true);
+        };
+
+        recognition.onend = function () {
+          state.isListening = false;
+          setMicState(false);
+        };
+
+        recognition.onerror = function () {
+          // Let onend restore UI
+        };
+
+        recognition.onresult = function (event) {
+          var transcript = "";
+          for (var i = event.resultIndex; i < event.results.length; i++) {
+            var res = event.results[i];
+            if (res && res[0] && res[0].transcript) transcript += res[0].transcript;
+          }
+          transcript = String(transcript || "").trim();
+          if (!transcript) return;
+
+          // Replace current textarea content with transcript
+          input.value = transcript;
+        };
+
+        micBtn.addEventListener("click", function () {
+          if (state.isBusy) return;
+          if (state.isListening) {
+            try { recognition.stop(); } catch (e) {}
+            return;
+          }
+
+          var locale = forcedLocale || (state.config && state.config.localeDefault) || "ru";
+          recognition.lang = mapLocaleToSpeechLang(locale);
+          try {
+            recognition.start();
+          } catch (e) {
+            // Some browsers throw if start called twice
+          }
+        });
+      }
+    }
 
     function doSend() {
       if (state.isBusy) return;

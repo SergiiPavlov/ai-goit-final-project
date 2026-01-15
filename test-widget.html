@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Leleka AI Widget — Local test</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
+      .hint { color: #666; max-width: 920px; line-height: 1.45; }
+      code { background: #f2f2f2; padding: 2px 6px; border-radius: 6px; }
+      .box { margin-top: 16px; border: 1px dashed #bbb; border-radius: 12px; padding: 16px; }
+    </style>
+  </head>
+  <body>
+    <h1>Leleka AI Widget — Local test</h1>
+    <p class="hint">
+      Эта страница нужна, чтобы проверить встраивание виджета как на стороннем сайте (другой origin).
+      Запусти API (порт <code>4001</code>), затем открой эту страницу через любой статический сервер (порт <code>5500</code>).
+      Микрофон (голосовой ввод) работает только в “безопасном контексте”; <code>http://localhost</code> подходит.
+    </p>
+
+    <div class="box">
+      <p class="hint">
+        Если виджет не появляется — открой DevTools Console и проверь, что origin добавлен в <code>allowedOrigins</code>
+        (либо в .env <code>ALLOWED_ORIGINS</code>, либо в проект в БД).
+      </p>
+      <div id="leleka-ai-widget"></div>
+    </div>
+
+    <!-- Важно: src указывает на ваш API-сервер (он же отдаёт /widget/widget.js) -->
+    <script
+      async
+      data-project="leleka-dev"
+      data-locale="ru"
+      src="http://localhost:4001/widget/widget.js"
+    ></script>
+  </body>
+</html>
