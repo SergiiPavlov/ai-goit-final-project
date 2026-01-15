@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
+import iconv from "iconv-lite";
 import type { AppEnv } from "../config/env";
 import { chatWithAssistant } from "../services/ai/assistant";
 
@@ -15,6 +16,40 @@ const ChatRequestSchema = z.object({
   history: z.array(ChatHistoryItemSchema).max(50).optional(),
 });
 
+
+function hasLetters(s: string) {
+  try {
+    return /\p{L}/u.test(s);
+  } catch {
+    // Fallback for runtimes without Unicode property escapes (should not happen on Node 18+).
+    return /[A-Za-zА-Яа-яЁёІіЇїЄє]/.test(s);
+  }
+}
+
+function looksGarbledMessage(s: string) {
+  if (!s) return true;
+  // If there are no letters at all, it's almost certainly an encoding issue (e.g., "?????").
+  if (!hasLetters(s)) return true;
+  // Heuristic: too many question marks compared to length.
+  const q = (s.match(/\?/g) ?? []).length;
+  return s.length >= 10 && q / s.length > 0.2;
+}
+
+function tryRecoverBodyFromRaw(raw: Buffer): any | null {
+  // Attempt decodes commonly seen in Windows terminals when UTF-8 is not configured.
+  const encodings: Array<BufferEncoding | string> = ["utf8", "win1251", "cp866"];
+  for (const enc of encodings) {
+    try {
+      const text = iconv.decode(raw, enc as any);
+      const obj = JSON.parse(text);
+      if (obj && typeof obj === "object") return obj;
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+}
+
 export async function chatController(req: Request, res: Response) {
   const project = req.project;
   if (!project) {
@@ -27,7 +62,18 @@ export async function chatController(req: Request, res: Response) {
     });
   }
 
-  const parsed = ChatRequestSchema.safeParse(req.body);
+    // Workaround: On some Windows terminals, non-UTF8 input may reach us as "????".
+  // If the parsed JSON looks garbled, try to recover from raw bytes.
+  let body: any = req.body;
+  const msg = typeof body?.message === "string" ? body.message : "";
+  if (req.rawBody && typeof msg === "string" && looksGarbledMessage(msg)) {
+    const recovered = tryRecoverBodyFromRaw(req.rawBody);
+    if (recovered && typeof recovered.message === "string" && hasLetters(recovered.message)) {
+      body = recovered;
+    }
+  }
+
+  const parsed = ChatRequestSchema.safeParse(body);
   if (!parsed.success) {
     return res.status(400).json({
       error: {

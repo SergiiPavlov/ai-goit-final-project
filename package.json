@@ -26,7 +26,8 @@
     "helmet": "^7.1.0",
     "morgan": "^1.10.0",
     "zod": "^3.23.8",
-    "prisma": "^5.22.0"
+    "prisma": "^5.22.0",
+    "iconv-lite": "^0.6.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
