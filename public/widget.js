@@ -5,6 +5,93 @@
 (function () {
   "use strict";
 
+  var state = {
+    config: null,
+    history: [],
+    isOpen: false,
+    isBusy: false,
+    isListening: false,
+    locale: "uk",
+    voices: [],
+  };
+
+  var LOCALE_STORAGE_KEY = "leleka_locale";
+
+  var UI_STRINGS = {
+    uk: {
+      launcherLabel: "Порадник",
+      title: "Лелека — Асистент",
+      closeLabel: "Закрити",
+      userLabel: "Ви",
+      assistantLabel: "Асистент",
+      micLabel: "Голосове введення (якщо підтримується браузером)",
+      micUnavailable: "Голосове введення недоступне в цьому браузері",
+      micStop: "Зупинити диктування",
+      placeholder: "Напишіть питання…",
+      sendLabel: "Надіслати",
+      warningsTitle: "Попередження:",
+      levelLabel: "Рівень:",
+      sourcesTitle: "Джерела (RAG)",
+      greeting:
+        "Вітаю. Я довідковий помічник щодо теми вагітності. Сформулюйте питання, і я постараюся допомогти.",
+      errorPrefix: "Помилка: ",
+      requestFailed: "Запит не вдався",
+      languageLabel: "Мова",
+    },
+    ru: {
+      launcherLabel: "Порадник",
+      title: "Лелека — Ассистент",
+      closeLabel: "Закрыть",
+      userLabel: "Вы",
+      assistantLabel: "Ассистент",
+      micLabel: "Голосовой ввод (если поддерживается браузером)",
+      micUnavailable: "Голосовой ввод недоступен в этом браузере",
+      micStop: "Остановить диктовку",
+      placeholder: "Напишите вопрос…",
+      sendLabel: "Отправить",
+      warningsTitle: "Предупреждения:",
+      levelLabel: "Уровень:",
+      sourcesTitle: "Источники (RAG)",
+      greeting:
+        "Здравствуйте. Я справочный помощник по теме беременности. Сформулируйте вопрос, и я постараюсь помочь.",
+      errorPrefix: "Ошибка: ",
+      requestFailed: "Запрос не удался",
+      languageLabel: "Язык",
+    },
+    en: {
+      launcherLabel: "Advisor",
+      title: "Leleka — Assistant",
+      closeLabel: "Close",
+      userLabel: "You",
+      assistantLabel: "Assistant",
+      micLabel: "Voice input (if supported by the browser)",
+      micUnavailable: "Voice input is not available in this browser",
+      micStop: "Stop dictation",
+      placeholder: "Type your question…",
+      sendLabel: "Send",
+      warningsTitle: "Warnings:",
+      levelLabel: "Level:",
+      sourcesTitle: "Sources (RAG)",
+      greeting:
+        "Hello. I am a reference assistant on pregnancy topics. Ask a question and I'll try to help.",
+      errorPrefix: "Error: ",
+      requestFailed: "Request failed",
+      languageLabel: "Language",
+    },
+  };
+
+  function normalizeLocale(input) {
+    var l = String(input || "").toLowerCase();
+    if (l === "uk" || l === "ua" || l.indexOf("uk-") === 0) return "uk";
+    if (l === "ru" || l.indexOf("ru-") === 0) return "ru";
+    if (l === "en" || l.indexOf("en-") === 0) return "en";
+    return "uk";
+  }
+
+  function getStrings() {
+    return UI_STRINGS[state.locale] || UI_STRINGS.uk;
+  }
+
   function byId(id) {
     return document.getElementById(id);
   }
@@ -69,26 +156,28 @@
   var apiBase = base ? base + "/v1" : "/v1";
   var widgetBase = base ? base + "/widget" : "/widget";
 
+  var storedLocale = null;
+  try {
+    storedLocale = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+  } catch (e) {
+    storedLocale = null;
+  }
+
+  state.locale = normalizeLocale(forcedLocale || storedLocale || "uk");
+
   // Avoid double init
   if (window.__LELEKA_WIDGET_MOUNTED__) return;
   window.__LELEKA_WIDGET_MOUNTED__ = true;
 
   injectCss(widgetBase + "/widget.css");
 
-  var state = {
-    config: null,
-    history: [],
-    isOpen: false,
-    isBusy: false,
-    isListening: false,
-  };
-
   function mapLocaleToSpeechLang(locale) {
     var l = String(locale || "").toLowerCase();
     if (l === "uk" || l === "ua" || l.startsWith("uk-")) return "uk-UA";
     if (l === "en" || l.startsWith("en-")) return "en-US";
     // default
-    return "ru-RU";
+    if (l === "ru" || l.startsWith("ru-")) return "ru-RU";
+    return "uk-UA";
   }
 
   function getSpeechRecognition() {
@@ -98,6 +187,45 @@
       return new SR();
     } catch (e) {
       return null;
+    }
+  }
+
+  function loadVoices() {
+    if (!window.speechSynthesis) return;
+    try {
+      state.voices = window.speechSynthesis.getVoices() || [];
+    } catch (e) {
+      state.voices = [];
+    }
+  }
+
+  function pickVoice(locale) {
+    if (!state.voices || !state.voices.length) return null;
+    var target = mapLocaleToSpeechLang(locale);
+    var exact = state.voices.filter(function (v) {
+      return v.lang === target;
+    })[0];
+    if (exact) return exact;
+    var prefix = target.split("-")[0];
+    var byPrefix = state.voices.filter(function (v) {
+      return v.lang && v.lang.indexOf(prefix) === 0;
+    })[0];
+    return byPrefix || state.voices[0];
+  }
+
+  function speakText(text) {
+    if (!window.speechSynthesis) return;
+    var spoken = String(text || "").trim();
+    if (!spoken) return;
+    var utter = new SpeechSynthesisUtterance(spoken);
+    utter.lang = mapLocaleToSpeechLang(state.locale);
+    var voice = pickVoice(state.locale);
+    if (voice) utter.voice = voice;
+    try {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utter);
+    } catch (e) {
+      // ignore
     }
   }
 
@@ -127,10 +255,12 @@
   function renderMessage(role, text) {
     var list = byId("leleka-widget-messages");
     if (!list) return;
+    var strings = getStrings();
+    var roleLabel = role === "user" ? strings.userLabel : strings.assistantLabel;
 
     var bubble = el("div", {
       class: "lw-msg " + (role === "user" ? "lw-msg--user" : "lw-msg--assistant"),
-      html: "<div class=\"lw-msg__role\">" + (role === "user" ? "Вы" : "Ассистент") + "</div>" +
+      html: "<div class=\"lw-msg__role\">" + escapeHtml(roleLabel) + "</div>" +
         "<div class=\"lw-msg__text\">" + escapeHtml(text).replace(/\n/g, "<br>") + "</div>",
     });
 
@@ -141,6 +271,7 @@
   function renderMeta(resp) {
     var meta = byId("leleka-widget-meta");
     if (!meta) return;
+    var strings = getStrings();
 
     var warnings = (resp && resp.warnings) || [];
     var level = (resp && resp.safetyLevel) || "normal";
@@ -150,7 +281,7 @@
 
     if (warnings.length) {
       parts.push(
-        "<div class=\"lw-meta__warnings\"><strong>Предупреждения:</strong><ul>" +
+        "<div class=\"lw-meta__warnings\"><strong>" + escapeHtml(strings.warningsTitle) + "</strong><ul>" +
           warnings.map(function (w) { return "<li>" + escapeHtml(w) + "</li>"; }).join("") +
           "</ul></div>"
       );
@@ -159,14 +290,14 @@
     if (level && level !== "normal") {
       parts.push(
         "<div class=\"lw-meta__level lw-level-" + escapeHtml(level) + "\">" +
-          "Уровень: " + escapeHtml(level) +
+          escapeHtml(strings.levelLabel) + " " + escapeHtml(level) +
         "</div>"
       );
     }
 
     if (sources.length) {
       parts.push(
-        "<details class=\"lw-meta__sources\"><summary>Источники (RAG)</summary>" +
+        "<details class=\"lw-meta__sources\"><summary>" + escapeHtml(strings.sourcesTitle) + "</summary>" +
           sources
             .map(function (s) {
               return (
@@ -195,6 +326,68 @@
     if (input) input.disabled = isBusy;
   }
 
+  function updateLocaleUI() {
+    var strings = getStrings();
+    var launcher = byId("leleka-widget-launcher");
+    var title = byId("leleka-widget-title");
+    var closeBtn = document.querySelector(".lw-close");
+    var input = byId("leleka-widget-input");
+    var sendBtn = byId("leleka-widget-send");
+    var micBtn = byId("leleka-widget-mic");
+    var localeLabel = document.querySelector(".lw-locale__label");
+
+    if (launcher) launcher.textContent = strings.launcherLabel;
+    if (title) title.textContent = strings.title;
+    if (closeBtn) closeBtn.setAttribute("aria-label", strings.closeLabel);
+    if (input) input.placeholder = strings.placeholder;
+    if (sendBtn) sendBtn.textContent = strings.sendLabel;
+    if (micBtn) {
+      micBtn.title = strings.micLabel;
+      micBtn.setAttribute("aria-label", strings.micLabel);
+    }
+    if (localeLabel) localeLabel.textContent = strings.languageLabel;
+  }
+
+  function loadPublicConfig(locale) {
+    return fetchJson(apiBase + "/projects/" + encodeURIComponent(projectKey) + "/public-config?locale=" + encodeURIComponent(locale), {
+      method: "GET",
+      headers: {
+        // path-based access, but still include header to help server logs
+        "X-Project-Key": projectKey,
+      },
+    })
+      .then(function (cfg) {
+        state.config = cfg;
+        var disc = byId("leleka-widget-disclaimer");
+        if (disc && cfg && cfg.disclaimer) {
+          disc.textContent = cfg.disclaimer;
+        }
+        return cfg;
+      })
+      .catch(function () {
+        // Non-fatal
+      });
+  }
+
+  function applyLocale(nextLocale, opts) {
+    var locale = normalizeLocale(nextLocale);
+    state.locale = locale;
+    var localeSelect = byId("leleka-widget-locale");
+    if (localeSelect) localeSelect.value = locale;
+    if (!forcedLocale) {
+      try {
+        window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+      } catch (e) {}
+    }
+    updateLocaleUI();
+    if (opts && opts.reloadConfig) {
+      loadPublicConfig(locale);
+    }
+    if (opts && opts.renderGreeting && !state.history.length) {
+      renderMessage("assistant", getStrings().greeting);
+    }
+  }
+
   function openModal() {
     state.isOpen = true;
     var overlay = byId("leleka-widget-overlay");
@@ -215,16 +408,36 @@
   }
 
   function mount() {
+    var strings = getStrings();
     // Button
-    var launcher = el("button", { class: "lw-launcher", type: "button", text: "Порадник" });
+    var launcher = el("button", {
+      id: "leleka-widget-launcher",
+      class: "lw-launcher",
+      type: "button",
+      text: strings.launcherLabel,
+    });
     launcher.addEventListener("click", toggleModal);
 
     // Modal structure
     var overlay = el("div", { id: "leleka-widget-overlay", class: "lw-overlay" }, [
       el("div", { class: "lw-modal", role: "dialog", "aria-modal": "true" }, [
         el("div", { class: "lw-header" }, [
-          el("div", { class: "lw-title", text: "Лелека — Ассистент" }),
-          el("button", { class: "lw-close", type: "button", text: "×", "aria-label": "Close" }),
+          el("div", { class: "lw-header__left" }, [
+            el("div", { id: "leleka-widget-title", class: "lw-title", text: strings.title }),
+            el("div", { class: "lw-locale" }, [
+              el("label", {
+                class: "lw-locale__label",
+                for: "leleka-widget-locale",
+                text: strings.languageLabel,
+              }),
+              el("select", { id: "leleka-widget-locale", class: "lw-locale__select" }, [
+                el("option", { value: "uk", text: "UK" }),
+                el("option", { value: "ru", text: "RU" }),
+                el("option", { value: "en", text: "EN" }),
+              ]),
+            ]),
+          ]),
+          el("button", { class: "lw-close", type: "button", text: "×", "aria-label": strings.closeLabel }),
         ]),
         el("div", { class: "lw-body" }, [
           el("div", { id: "leleka-widget-messages", class: "lw-messages" }),
@@ -239,18 +452,23 @@
               '<svg class="lw-mic__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
               '<path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/>' +
               "</svg>",
-            title: "Голосовой ввод (если поддерживается браузером)",
-            "aria-label": "Голосовой ввод",
+            title: strings.micLabel,
+            "aria-label": strings.micLabel,
           }),
           el("div", { class: "lw-inputwrap" }, [
             el("textarea", {
               id: "leleka-widget-input",
               class: "lw-input",
               rows: "2",
-              placeholder: "Напишите вопрос…",
+              placeholder: strings.placeholder,
             }),
           ]),
-          el("button", { id: "leleka-widget-send", class: "lw-send", type: "button", text: "Отправить" }),
+          el("button", {
+            id: "leleka-widget-send",
+            class: "lw-send",
+            type: "button",
+            text: strings.sendLabel,
+          }),
         ]),
         el("div", { id: "leleka-widget-disclaimer", class: "lw-disclaimer" }),
       ]),
@@ -284,16 +502,17 @@
 
     function setMicState(listening) {
       if (!micBtn) return;
+      var strings = getStrings();
       if (listening) {
         micBtn.classList.add("lw-mic--active");
         micBtn.innerHTML = STOP_ICON;
-        micBtn.title = "Остановить диктовку";
-        micBtn.setAttribute("aria-label", "Остановить диктовку");
+        micBtn.title = strings.micStop;
+        micBtn.setAttribute("aria-label", strings.micStop);
       } else {
         micBtn.classList.remove("lw-mic--active");
         micBtn.innerHTML = MIC_ICON;
-        micBtn.title = "Голосовой ввод (если поддерживается браузером)";
-        micBtn.setAttribute("aria-label", "Голосовой ввод");
+        micBtn.title = strings.micLabel;
+        micBtn.setAttribute("aria-label", strings.micLabel);
       }
     }
 
@@ -302,10 +521,14 @@
 
     // Voice input (SpeechRecognition API)
     var recognition = getSpeechRecognition();
+    if (window.speechSynthesis) {
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
     if (micBtn) {
       if (!recognition) {
         micBtn.disabled = true;
-        micBtn.title = "Голосовой ввод недоступен в этом браузере";
+        micBtn.title = getStrings().micUnavailable;
       } else {
         recognition.interimResults = true;
         recognition.continuous = false;
@@ -344,8 +567,7 @@
             return;
           }
 
-          var locale = forcedLocale || (state.config && state.config.localeDefault) || "ru";
-          recognition.lang = mapLocaleToSpeechLang(locale);
+          recognition.lang = mapLocaleToSpeechLang(state.locale);
           try {
             recognition.start();
           } catch (e) {
@@ -377,13 +599,14 @@
         },
         body: JSON.stringify({
           message: text,
-          locale: forcedLocale || (state.config && state.config.localeDefault) || "ru",
+          locale: state.locale,
           history: state.history,
         }),
       })
         .then(function (resp) {
           var reply = (resp && resp.reply) || "";
           renderMessage("assistant", reply);
+          speakText(reply);
 
           state.history.push({ role: "assistant", content: reply });
           state.history = state.history.slice(-20);
@@ -391,8 +614,9 @@
           renderMeta(resp);
         })
         .catch(function (err) {
-          var msg = err && err.message ? err.message : "Request failed";
-          renderMessage("assistant", "Ошибка: " + msg);
+          var strings = getStrings();
+          var msg = err && err.message ? err.message : strings.requestFailed;
+          renderMessage("assistant", strings.errorPrefix + msg);
         })
         .finally(function () {
           setBusy(false);
@@ -409,30 +633,19 @@
       }
     });
 
-    // Load public-config
-    fetchJson(apiBase + "/projects/" + encodeURIComponent(projectKey) + "/public-config", {
-      method: "GET",
-      headers: {
-        // path-based access, but still include header to help server logs
-        "X-Project-Key": projectKey,
-      },
-    })
-      .then(function (cfg) {
-        state.config = cfg;
-        var disc = byId("leleka-widget-disclaimer");
-        if (disc && cfg && cfg.disclaimer) {
-          disc.textContent = cfg.disclaimer;
-        }
-      })
-      .catch(function () {
-        // Non-fatal
-      });
+    var localeSelect = byId("leleka-widget-locale");
+    if (localeSelect) {
+      localeSelect.value = state.locale;
+      if (forcedLocale) {
+        localeSelect.disabled = true;
+      } else {
+        localeSelect.addEventListener("change", function () {
+          applyLocale(localeSelect.value, { reloadConfig: true, renderGreeting: false });
+        });
+      }
+    }
 
-    // greeting
-    renderMessage(
-      "assistant",
-      "Здравствуйте. Я справочный помощник по теме беременности. Сформулируйте вопрос, и я постараюсь помочь."
-    );
+    applyLocale(state.locale, { reloadConfig: true, renderGreeting: true });
   }
 
   if (document.readyState === "loading") {
