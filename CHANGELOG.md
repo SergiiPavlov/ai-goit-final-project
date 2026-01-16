@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.0 (PR8) — Locale enforcement, widget i18n, and voice language
+- Normalized locale handling across API + public config, with safe fallbacks and localized disclaimers/prompts.
+- Added strict language enforcement for LLM replies with retry on mismatch and safer smoke-test/empty-input handling.
+- Localized widget UI (RU/UK/EN) with language selector, persisted choice, and locale-aware voice ASR/TTS.
+- KB fallback excerpts now use bounded snippets instead of full source text.
+- Added assistant self-check script for short greetings/smoke inputs.
+
 ## 0.6.0 (PR2) — pgvector RAG (embeddings + vector search)
 - Added pgvector extension migration and KnowledgeChunk.embedding (vector(1536)).
 - /v1/chat now prefers vector search for KB retrieval when OpenAI is configured (fallback to lexical matching).

@@ -73,12 +73,48 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   border-bottom: 1px solid var(--lw-border);
   background: rgba(17,24,39,0.02);
 }
 
+.lw-header__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .lw-title {
   font: 700 14px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  white-space: nowrap;
+}
+
+.lw-locale {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 600 11px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  color: var(--lw-muted);
+}
+
+.lw-locale__label {
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.lw-locale__select {
+  border: 1px solid var(--lw-border);
+  border-radius: 8px;
+  padding: 2px 6px;
+  font: 600 12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background: #fff;
+  color: var(--lw-fg);
+}
+
+.lw-locale__select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .lw-close {

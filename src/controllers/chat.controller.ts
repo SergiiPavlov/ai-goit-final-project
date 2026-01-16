@@ -3,6 +3,7 @@ import { z } from "zod";
 import iconv from "iconv-lite";
 import type { AppEnv } from "../config/env";
 import { chatWithAssistant } from "../services/ai/assistant";
+import { normalizeLocale } from "../utils/locale";
 
 const ChatHistoryItemSchema = z.object({
   role: z.enum(["user", "assistant"]),
@@ -11,7 +12,7 @@ const ChatHistoryItemSchema = z.object({
 
 const ChatRequestSchema = z.object({
   message: z.string().min(1).max(8000),
-  locale: z.enum(["ru", "uk", "en"]).optional(),
+  locale: z.string().optional(),
   context: z.record(z.any()).optional(),
   history: z.array(ChatHistoryItemSchema).max(50).optional(),
 });
@@ -87,7 +88,7 @@ export async function chatController(req: Request, res: Response) {
 
   const env = req.app.locals.env as AppEnv;
 
-  const locale = parsed.data.locale ?? (project.localeDefault as any) ?? "ru";
+  const locale = normalizeLocale(parsed.data.locale, project.localeDefault);
 
   const result = await chatWithAssistant({
     env,
