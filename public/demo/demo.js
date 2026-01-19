@@ -30,7 +30,8 @@
     if (l === "uk" || l === "ua" || l.startsWith("uk-")) return "uk-UA";
     if (l === "en" || l.startsWith("en-")) return "en-US";
     // default
-    return "ru-RU";
+    if (l === "ru" || l.startsWith("ru-")) return "ru-RU";
+    return "uk-UA";
   }
 
   function getSpeechRecognition() {

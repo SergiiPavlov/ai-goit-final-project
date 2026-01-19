@@ -4,6 +4,17 @@ import type { AppEnv } from "../../config/env";
 import { openaiChatJson, openaiEmbeddings } from "./openai";
 import { maxSafety, triageMessage, type SafetyLevel } from "./triage";
 import { retrieveKnowledgeCitations, type KnowledgeCitation } from "../kb.service";
+import {
+  ASK_QUESTION_PROMPT,
+  ERROR_GENERIC,
+  NO_PROVIDER,
+  REPHRASE_PROMPT,
+  SMOKE_TEST_RESPONSE,
+} from "../../i18n";
+import type { Locale } from "../../utils/locale";
+
+// Disclaimers are exposed via /v1/projects/:key/public-config and rendered by the widget UI (footer).
+// We intentionally avoid appending them to every assistant reply to prevent duplication.
 
 const SourceCitationSchema = z.object({
   sourceId: z.string().min(1),
@@ -92,17 +103,50 @@ function tokenizeForRelevance(text: string) {
     .filter((t) => !stop.has(t));
 }
 
+function isGreetingOrShortAck(text: string) {
+  const t = text.trim().toLowerCase();
+  if (!t) return true;
+  const patterns = [
+    /^hi\b/,
+    /^hello\b/,
+    /^hey\b/,
+    /^привет\b/,
+    /^здравствуй/,
+    /^здравствуйте/,
+    /^добрый\s+(день|вечер)/,
+    /^вітаю/,
+    /^добрий\s+(день|вечір)/,
+    /^дякую/,
+    /^спасибо/,
+    /^thanks\b/,
+    /^thank\s+you\b/,
+    /^ok\b/,
+    /^okay\b/,
+    /^test\b/,
+    /^тест\b/,
+  ];
+  return patterns.some((p) => p.test(t));
+}
+
+function isExplicitQuestion(text: string) {
+  const t = text.trim();
+  if (!t) return false;
+  if (isGreetingOrShortAck(t)) return false;
+  if (/[?？]/.test(t)) return true;
+  const patterns = [
+    /^(можно|нужно|стоит|как|что|почему|зачем|когда|сколько|какой|какая|какие)\b/i,
+    /^(чи|можна|потрібно|варто|як|що|коли|скільки|який|яка|які)\b/i,
+    /^(can|should|is|are|do|does|what|why|how|when|where)\b/i,
+    /^could\s+i\b/i,
+    /^is\s+it\b/i,
+  ];
+  return patterns.some((p) => p.test(t));
+}
+
 function looksIrrelevant(question: string, answer: string) {
   const q = question || "";
   const qTokens = tokenizeForRelevance(q);
-  // Only enforce for actual questions or short topic prompts; do not penalize smoke tests like "Тест smoke"
-  const isQuestion =
-    /[?？]/.test(q) ||
-    /^можно\s+ли\b/i.test(q) ||
-    /^can\s+i\b/i.test(q) ||
-    (qTokens.length > 0 && q.trim().length <= 80);
-  if (!isQuestion) return false;
-
+  if (!isExplicitQuestion(q)) return false;
   if (!qTokens.length) return false;
 
   const a = (answer || "").replace(/ё/g, "е").toLowerCase();
@@ -114,6 +158,84 @@ function looksIrrelevant(question: string, answer: string) {
   return true;
 }
 
+function hasLetters(s: string) {
+  try {
+    return /\p{L}/u.test(s);
+  } catch {
+    return /[A-Za-zА-Яа-яЁёІіЇїЄєҐґ]/.test(s);
+  }
+}
+
+function isGreetingMessage(message: string): boolean {
+  const t = String(message || "").trim().toLowerCase();
+  if (!t) return false;
+  if (t.length > 40) return false;
+  return (
+    /^(привет|здравствуй|здравствуйте|добрый\s+день|добрый\s+вечер|доброе\s+утро)[!.,\s]*$/i.test(t) ||
+    /^(hi|hello|hey)[!.,\s]*$/i.test(t) ||
+    /^(привіт|вітаю|добр(ий|ого)\s+день|добр(ий|ого)\s+вечір|доброго\s+ранку)[!.,\s]*$/i.test(t)
+  );
+}
+
+function greetingReply(locale: Locale): string {
+  switch (locale) {
+    case "en":
+      return "Hello! How can I help you regarding pregnancy?";
+    case "uk":
+      return "Привіт! Чим можу допомогти щодо теми вагітності?";
+    default:
+      return "Привет! Чем могу помочь по теме беременности?";
+  }
+}
+
+function isSmokeTestMessage(message: string) {
+  const t = message.trim().toLowerCase();
+  if (!t) return false;
+  const hasSmoke = t.includes("smoke");
+  const hasTest = t.includes("test") || t.includes("тест");
+  return hasSmoke && hasTest;
+}
+
+function detectLocaleFromText(text: string): "ru" | "uk" | "en" | "cyrillic" | "unknown" {
+  const s = text || "";
+  const latin = (s.match(/[A-Za-z]/g) ?? []).length;
+  const cyrillic = (s.match(/[А-Яа-яЁёІіЇїЄєҐґ]/g) ?? []).length;
+  const hasUk = /[ІіЇїЄєҐґ]/.test(s);
+  const hasRu = /[ЫыЭэЁёЪъ]/.test(s);
+
+  if (!latin && !cyrillic) return "unknown";
+  if (latin && !cyrillic) return "en";
+  if (cyrillic && !latin) {
+    if (hasUk && !hasRu) return "uk";
+    if (hasRu && !hasUk) return "ru";
+    return "cyrillic";
+  }
+
+  if (latin > cyrillic * 1.2) return "en";
+  if (cyrillic > latin * 1.2) {
+    if (hasUk && !hasRu) return "uk";
+    if (hasRu && !hasUk) return "ru";
+    return "cyrillic";
+  }
+
+  return "unknown";
+}
+
+function isLocaleMismatch(locale: Locale, text: string) {
+  const detected = detectLocaleFromText(text);
+  if (detected === "unknown") return false;
+  if (locale === "en") return detected !== "en";
+  if (locale === "ru") return detected === "en" || detected === "uk";
+  if (locale === "uk") return detected === "en" || detected === "ru";
+  return false;
+}
+
+export const __testing = {
+  isExplicitQuestion,
+  looksIrrelevant,
+  isSmokeTestMessage,
+};
+
 type ProviderChatResponse = z.infer<typeof ProviderChatResponseSchema>;
 
 const ChatHistoryItemSchema = z.object({
@@ -124,18 +246,27 @@ export type ChatHistoryItem = z.infer<typeof ChatHistoryItemSchema>;
 
 function buildSystemPrompt(opts: {
   project: ProjectRecord;
-  locale: string;
+  locale: Locale;
   context?: any;
   knowledgeExcerpts?: string;
+  strictLanguage?: boolean;
 }) {
-  const { project, locale, context, knowledgeExcerpts } = opts;
+  const { project, locale, context, knowledgeExcerpts, strictLanguage } = opts;
 
   const languageHint =
     locale === "en"
-      ? "Respond in English."
+      ? "Respond strictly in English (locale: en)."
       : locale === "uk"
-        ? "Відповідай українською."
-        : "Отвечай по-русски.";
+        ? "Відповідай строго українською (locale: uk)."
+        : "Отвечай строго по-русски (locale: ru).";
+
+  const languageStrict =
+    strictLanguage &&
+    (locale === "en"
+      ? "Answer ONLY in English. Do not switch languages."
+      : locale === "uk"
+        ? "Відповідай лише українською мовою. Не перемикай мову."
+        : "Отвечай только по-русски. Не переключай язык.");
 
   const formatHint = `Return ONLY valid JSON with this shape:
 { "reply": string, "warnings": string[], "safetyLevel": "normal"|"caution"|"urgent", "sources": [] }.
@@ -159,23 +290,23 @@ ${knowledgeExcerpts}`
     languageHint,
     medicalSafety,
     kbBlock,
-    `Always include this disclaimer at the end of reply (in the same language): "${project.disclaimerTemplate}"`,
+    // NOTE: A persistent disclaimer is rendered by the widget UI based on /public-config.
     contextBlock,
     formatHint,
+    languageStrict,
   ]
     .filter(Boolean)
     .join("\n\n");
 }
 
-function ensureDisclaimer(reply: string, disclaimer: string) {
-  const r = reply.trim();
-  const d = disclaimer.trim();
-  if (!d) return r;
-  if (r.toLowerCase().includes(d.toLowerCase())) return r;
-  return `${r}\n\n${d}`;
+function ensureDisclaimer(reply: string) {
+  // Disclaimers are rendered persistently in the widget footer.
+  // Appending them to every message causes noisy duplication (especially
+  // when the user changes locale mid-conversation), so we keep replies clean.
+  return reply.trim();
 }
 
-function pickKbFallbackAnswer(opts: { excerpts: string; locale: "ru" | "uk" | "en"; question: string }) {
+function pickKbFallbackAnswer(opts: { excerpts: string; locale: Locale; question: string }) {
   const { excerpts, locale, question } = opts;
   const cleaned = (excerpts || "").trim();
   if (!cleaned) return "";
@@ -230,11 +361,41 @@ export async function chatWithAssistant(opts: {
   env: AppEnv;
   project: ProjectRecord;
   message: string;
-  locale: "ru" | "uk" | "en";
+  locale: Locale;
   context?: any;
   history?: ChatHistoryItem[];
 }): Promise<ChatResponse> {
   const { env, project, message, locale, context } = opts;
+  const trimmedMessage = String(message || "").trim();
+
+  // Fast-path greetings so the widget behaves consistently across locales
+  // and does not waste LLM tokens on "hello/привет/...".
+  if (isGreetingMessage(trimmedMessage)) {
+    return {
+      reply: greetingReply(locale),
+      warnings: [],
+      safetyLevel: "normal",
+      sources: [],
+    };
+  }
+
+  if (process.env.NODE_ENV !== "production" && isSmokeTestMessage(trimmedMessage)) {
+    return {
+      reply: ensureDisclaimer(SMOKE_TEST_RESPONSE[locale]),
+      warnings: [],
+      safetyLevel: "normal",
+      sources: [],
+    };
+  }
+
+  if (!hasLetters(trimmedMessage)) {
+    return {
+      reply: ensureDisclaimer(ASK_QUESTION_PROMPT[locale]),
+      warnings: [],
+      safetyLevel: "normal",
+      sources: [],
+    };
+  }
 
   const triage = triageMessage(message, locale);
 
@@ -299,13 +460,9 @@ export async function chatWithAssistant(opts: {
   if (!env.OPENAI_API_KEY) {
     const fallback = citations.length
       ? pickKbFallbackAnswer({ excerpts, locale, question: message })
-      : locale === "en"
-        ? "AI provider is not configured on this server. Add OPENAI_API_KEY to enable live responses."
-        : locale === "uk"
-          ? "AI-провайдер не налаштований на цьому сервері. Додайте OPENAI_API_KEY, щоб увімкнути відповіді."
-          : "AI‑провайдер не настроен на этом сервере. Добавьте OPENAI_API_KEY, чтобы включить ответы.";
+      : NO_PROVIDER[locale];
 
-    const reply = ensureDisclaimer(fallback, project.disclaimerTemplate);
+    const reply = ensureDisclaimer(fallback);
 
     return {
       reply,
@@ -325,14 +482,7 @@ export async function chatWithAssistant(opts: {
   const parsed = ProviderChatResponseSchema.safeParse(raw);
   if (!parsed.success) {
     // Provider returned valid JSON but not our contract. Return a safe generic message.
-    const reply = ensureDisclaimer(
-      locale === "en"
-        ? "Sorry, I couldn't produce a structured answer. Please rephrase your question."
-        : locale === "uk"
-          ? "Вибачте, не вдалося сформувати структуровану відповідь. Спробуйте перефразувати запит."
-          : "Извините, не удалось сформировать структурированный ответ. Попробуйте переформулировать вопрос.",
-      project.disclaimerTemplate
-    );
+    const reply = ensureDisclaimer(ERROR_GENERIC[locale]);
 
     return {
       reply,
@@ -348,6 +498,30 @@ export async function chatWithAssistant(opts: {
   }
 
   let modelResp: ProviderChatResponse = parsed.data;
+
+  if (isLocaleMismatch(locale, modelResp.reply)) {
+    try {
+      const strictSystem = buildSystemPrompt({
+        project,
+        locale,
+        context,
+        knowledgeExcerpts: excerpts,
+        strictLanguage: true,
+      });
+      const retryMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+        { role: "system", content: strictSystem },
+        ...history.map((h) => ({ role: h.role, content: h.content })),
+        { role: "user", content: message },
+      ];
+      const raw2 = await openaiChatJson({ env, messages: retryMessages });
+      const parsed2 = ProviderChatResponseSchema.safeParse(raw2);
+      if (parsed2.success && !isLocaleMismatch(locale, parsed2.data.reply)) {
+        modelResp = parsed2.data;
+      }
+    } catch {
+      // keep original response
+    }
+  }
 
   // PR-07: Guard against occasional off-topic model replies (especially with OpenAI-compatible local providers).
   // If the answer doesn't mention any meaningful token from the question, retry once with a stricter instruction.
@@ -375,14 +549,7 @@ export async function chatWithAssistant(opts: {
     // Prefer KB-based deterministic answer if we have relevant excerpts.
     const kbFallback = citations.length ? pickKbFallbackAnswer({ excerpts, locale, question: message }) : "";
 
-    const fallback = kbFallback
-      ? kbFallback
-      :
-      locale === "en"
-        ? "Sorry, I couldn't reliably answer this question. Please rephrase it and try again."
-        : locale === "uk"
-          ? "Вибачте, не вдалося надійно відповісти на це питання. Спробуйте перефразувати запит і повторіть."
-          : "Извините, не удалось надёжно ответить на этот вопрос. Переформулируйте запрос и попробуйте ещё раз.";
+    const fallback = kbFallback ? kbFallback : REPHRASE_PROMPT[locale];
 
     modelResp = {
       reply: fallback,
@@ -408,7 +575,7 @@ export async function chatWithAssistant(opts: {
   const warnings = Array.from(new Set([...(triage.warnings ?? []), ...((modelResp.warnings as any) ?? [])]));
 
   return {
-    reply: ensureDisclaimer(modelResp.reply, project.disclaimerTemplate),
+    reply: ensureDisclaimer(modelResp.reply),
     warnings,
     safetyLevel,
     sources: normalizeCitations(citations).map((c) => ({

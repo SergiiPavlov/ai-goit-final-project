@@ -191,8 +191,7 @@ function scoreChunk(content: string, tokens: string[]) {
   return { score, matchedTokens };
 }
 
-function buildSnippet(content: string, query: string) {
-  const max = 240;
+function buildSnippetWithMax(content: string, query: string, max: number, contextBefore: number) {
   const c = normalizeText(content);
   if (c.length <= max) return c;
 
@@ -207,9 +206,17 @@ function buildSnippet(content: string, query: string) {
     }
   }
 
-  const start = bestPos === -1 ? 0 : Math.max(0, bestPos - 40);
+  const start = bestPos === -1 ? 0 : Math.max(0, bestPos - contextBefore);
   const slice = c.slice(start, start + max);
   return (start > 0 ? "…" : "") + slice.trim() + (start + max < c.length ? "…" : "");
+}
+
+function buildSnippet(content: string, query: string) {
+  return buildSnippetWithMax(content, query, 240, 40);
+}
+
+function buildExcerptSnippet(content: string, query: string) {
+  return buildSnippetWithMax(content, query, 1000, 120);
 }
 
 function toPgVectorLiteral(v: number[]) {
@@ -418,8 +425,9 @@ export async function retrieveKnowledgeCitations(opts: {
       });
       if (fallback) {
         const snippet = buildSnippet(fallback.text, query);
+        const excerpt = buildExcerptSnippet(fallback.text, query);
         return {
-          excerpts: `[#1] ${fallback.title}${fallback.url ? ` (${fallback.url})` : ""}\n${fallback.text}`,
+          excerpts: `[#1] ${fallback.title}${fallback.url ? ` (${fallback.url})` : ""}\n${excerpt}`,
           citations: [
             {
               sourceId: fallback.id,
@@ -477,8 +485,9 @@ export async function retrieveKnowledgeCitations(opts: {
       });
       if (fallback) {
         const snippet = buildSnippet(fallback.text, query);
+        const excerpt = buildExcerptSnippet(fallback.text, query);
         return {
-          excerpts: `[#1] ${fallback.title}${fallback.url ? ` (${fallback.url})` : ""}\n${fallback.text}`,
+          excerpts: `[#1] ${fallback.title}${fallback.url ? ` (${fallback.url})` : ""}\n${excerpt}`,
           citations: [
             {
               sourceId: fallback.id,

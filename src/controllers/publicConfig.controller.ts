@@ -1,4 +1,6 @@
 import type { Request, Response } from "express";
+import { normalizeLocale } from "../utils/locale";
+import { resolveProjectDisclaimer } from "../utils/disclaimer";
 
 export async function publicConfigController(req: Request, res: Response) {
   const project = req.project;
@@ -14,10 +16,13 @@ export async function publicConfigController(req: Request, res: Response) {
   }
 
   // PR-03: public config used by widget/client to render UI and know limits.
+  const locale = normalizeLocale(req.query.locale?.toString(), project.localeDefault);
+
   return res.json({
     projectKey: project.publicKey,
-    localeDefault: project.localeDefault,
-    disclaimer: project.disclaimerTemplate,
+    localeDefault: normalizeLocale(project.localeDefault),
+    disclaimer: resolveProjectDisclaimer(project, locale),
+    locale,
     limits: {
       maxMessageChars: 8000,
       maxHistoryItems: 50,
