@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
-import { DISCLAIMER } from "../i18n";
 import { normalizeLocale } from "../utils/locale";
+import { resolveProjectDisclaimer } from "../utils/disclaimer";
 
 export async function publicConfigController(req: Request, res: Response) {
   const project = req.project;
@@ -21,7 +21,7 @@ export async function publicConfigController(req: Request, res: Response) {
   return res.json({
     projectKey: project.publicKey,
     localeDefault: normalizeLocale(project.localeDefault),
-    disclaimer: DISCLAIMER[locale],
+    disclaimer: resolveProjectDisclaimer(project, locale),
     locale,
     limits: {
       maxMessageChars: 8000,

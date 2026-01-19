@@ -139,6 +139,9 @@
 
   var projectKey = script && script.getAttribute("data-project");
   var forcedLocale = script && script.getAttribute("data-locale"); // optional: ru|uk|en
+  // If you need to lock language selection, set: data-locale-lock=1 (or true).
+  // By default, data-locale is treated as a *default* only (user can switch).
+  var forcedLocaleLock = script && script.getAttribute("data-locale-lock");
 
   if (!projectKey) {
     console.error("[LelekaWidget] Missing data-project=PUBLIC_KEY on <script> tag");
@@ -214,19 +217,8 @@
   }
 
   function speakText(text) {
-    if (!window.speechSynthesis) return;
-    var spoken = String(text || "").trim();
-    if (!spoken) return;
-    var utter = new SpeechSynthesisUtterance(spoken);
-    utter.lang = mapLocaleToSpeechLang(state.locale);
-    var voice = pickVoice(state.locale);
-    if (voice) utter.voice = voice;
-    try {
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(utter);
-    } catch (e) {
-      // ignore
-    }
+    // Voice OUTPUT is intentionally disabled. We only support voice INPUT.
+    return;
   }
 
   function fetchJson(url, opts) {
@@ -379,11 +371,19 @@
         window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
       } catch (e) {}
     }
-    updateLocaleUI();
+        updateLocaleUI();
+    if (opts && opts.resetChat) {
+      state.history = [];
+      state.lastUserMessage = "";
+      state.lastAssistantMessage = "";
+      state.lastSources = [];
+      const messagesEl = byId("leleka-widget-messages");
+      if (messagesEl) messagesEl.innerHTML = "";
+    }
     if (opts && opts.reloadConfig) {
       loadPublicConfig(locale);
     }
-    if (opts && opts.renderGreeting && !state.history.length) {
+    if (opts && opts.renderGreeting && (opts.resetChat || !state.history.length)) {
       renderMessage("assistant", getStrings().greeting);
     }
   }
@@ -606,7 +606,7 @@
         .then(function (resp) {
           var reply = (resp && resp.reply) || "";
           renderMessage("assistant", reply);
-          speakText(reply);
+          // voice output disabled
 
           state.history.push({ role: "assistant", content: reply });
           state.history = state.history.slice(-20);
@@ -636,11 +636,18 @@
     var localeSelect = byId("leleka-widget-locale");
     if (localeSelect) {
       localeSelect.value = state.locale;
-      if (forcedLocale) {
-        localeSelect.disabled = true;
-      } else {
+
+      // data-locale defines the initial locale. Lock selector only when data-locale-lock is truthy.
+      var isLocked = !!(
+        forcedLocale &&
+        forcedLocaleLock &&
+        /^(1|true|yes)$/i.test(String(forcedLocaleLock).trim())
+      );
+      localeSelect.disabled = isLocked;
+
+      if (!isLocked) {
         localeSelect.addEventListener("change", function () {
-          applyLocale(localeSelect.value, { reloadConfig: true, renderGreeting: false });
+          applyLocale(localeSelect.value, { reloadConfig: true, resetChat: true, renderGreeting: true });
         });
       }
     }

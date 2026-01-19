@@ -1,20 +1,16 @@
-export const SUPPORTED_LOCALES = ["uk", "ru", "en"] as const;
-export type Locale = (typeof SUPPORTED_LOCALES)[number];
+export type Locale = "ru" | "uk" | "en";
 
-function normalizeCandidate(input?: string | null): string {
-  return String(input ?? "").trim().toLowerCase();
+export const DEFAULT_LOCALE: Locale = "ru";
+
+export const SUPPORTED_LOCALES: readonly Locale[] = ["ru", "uk", "en"] as const;
+
+export function normalizeLocale(value?: string | null): Locale {
+  const v = String(value || "").toLowerCase().trim();
+  if (v === "ua") return "uk";
+  if (v === "uk" || v === "ru" || v === "en") return v as Locale;
+  return DEFAULT_LOCALE;
 }
 
-export function normalizeLocale(input?: string | null, fallback?: string | null): Locale {
-  const raw = normalizeCandidate(input);
-  if (raw.startsWith("uk") || raw === "ua") return "uk";
-  if (raw.startsWith("ru")) return "ru";
-  if (raw.startsWith("en")) return "en";
-
-  const rawFallback = normalizeCandidate(fallback);
-  if (rawFallback.startsWith("uk") || rawFallback === "ua") return "uk";
-  if (rawFallback.startsWith("ru")) return "ru";
-  if (rawFallback.startsWith("en")) return "en";
-
-  return "uk";
+export function isLocale(value: unknown): value is Locale {
+  return value === "ru" || value === "uk" || value === "en";
 }

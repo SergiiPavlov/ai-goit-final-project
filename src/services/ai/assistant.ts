@@ -6,13 +6,15 @@ import { maxSafety, triageMessage, type SafetyLevel } from "./triage";
 import { retrieveKnowledgeCitations, type KnowledgeCitation } from "../kb.service";
 import {
   ASK_QUESTION_PROMPT,
-  DISCLAIMER,
   ERROR_GENERIC,
   NO_PROVIDER,
   REPHRASE_PROMPT,
   SMOKE_TEST_RESPONSE,
 } from "../../i18n";
 import type { Locale } from "../../utils/locale";
+
+// Disclaimers are exposed via /v1/projects/:key/public-config and rendered by the widget UI (footer).
+// We intentionally avoid appending them to every assistant reply to prevent duplication.
 
 const SourceCitationSchema = z.object({
   sourceId: z.string().min(1),
@@ -164,6 +166,28 @@ function hasLetters(s: string) {
   }
 }
 
+function isGreetingMessage(message: string): boolean {
+  const t = String(message || "").trim().toLowerCase();
+  if (!t) return false;
+  if (t.length > 40) return false;
+  return (
+    /^(привет|здравствуй|здравствуйте|добрый\s+день|добрый\s+вечер|доброе\s+утро)[!.,\s]*$/i.test(t) ||
+    /^(hi|hello|hey)[!.,\s]*$/i.test(t) ||
+    /^(привіт|вітаю|добр(ий|ого)\s+день|добр(ий|ого)\s+вечір|доброго\s+ранку)[!.,\s]*$/i.test(t)
+  );
+}
+
+function greetingReply(locale: Locale): string {
+  switch (locale) {
+    case "en":
+      return "Hello! How can I help you regarding pregnancy?";
+    case "uk":
+      return "Привіт! Чим можу допомогти щодо теми вагітності?";
+    default:
+      return "Привет! Чем могу помочь по теме беременности?";
+  }
+}
+
 function isSmokeTestMessage(message: string) {
   const t = message.trim().toLowerCase();
   if (!t) return false;
@@ -266,7 +290,7 @@ ${knowledgeExcerpts}`
     languageHint,
     medicalSafety,
     kbBlock,
-    `Always include this disclaimer at the end of reply (in the same language): "${DISCLAIMER[locale]}"`,
+    // NOTE: A persistent disclaimer is rendered by the widget UI based on /public-config.
     contextBlock,
     formatHint,
     languageStrict,
@@ -275,12 +299,11 @@ ${knowledgeExcerpts}`
     .join("\n\n");
 }
 
-function ensureDisclaimer(reply: string, disclaimer: string) {
-  const r = reply.trim();
-  const d = disclaimer.trim();
-  if (!d) return r;
-  if (r.toLowerCase().includes(d.toLowerCase())) return r;
-  return `${r}\n\n${d}`;
+function ensureDisclaimer(reply: string) {
+  // Disclaimers are rendered persistently in the widget footer.
+  // Appending them to every message causes noisy duplication (especially
+  // when the user changes locale mid-conversation), so we keep replies clean.
+  return reply.trim();
 }
 
 function pickKbFallbackAnswer(opts: { excerpts: string; locale: Locale; question: string }) {
@@ -344,11 +367,21 @@ export async function chatWithAssistant(opts: {
 }): Promise<ChatResponse> {
   const { env, project, message, locale, context } = opts;
   const trimmedMessage = String(message || "").trim();
-  const disclaimer = DISCLAIMER[locale];
+
+  // Fast-path greetings so the widget behaves consistently across locales
+  // and does not waste LLM tokens on "hello/привет/...".
+  if (isGreetingMessage(trimmedMessage)) {
+    return {
+      reply: greetingReply(locale),
+      warnings: [],
+      safetyLevel: "normal",
+      sources: [],
+    };
+  }
 
   if (process.env.NODE_ENV !== "production" && isSmokeTestMessage(trimmedMessage)) {
     return {
-      reply: ensureDisclaimer(SMOKE_TEST_RESPONSE[locale], disclaimer),
+      reply: ensureDisclaimer(SMOKE_TEST_RESPONSE[locale]),
       warnings: [],
       safetyLevel: "normal",
       sources: [],
@@ -357,7 +390,7 @@ export async function chatWithAssistant(opts: {
 
   if (!hasLetters(trimmedMessage)) {
     return {
-      reply: ensureDisclaimer(ASK_QUESTION_PROMPT[locale], disclaimer),
+      reply: ensureDisclaimer(ASK_QUESTION_PROMPT[locale]),
       warnings: [],
       safetyLevel: "normal",
       sources: [],
@@ -429,7 +462,7 @@ export async function chatWithAssistant(opts: {
       ? pickKbFallbackAnswer({ excerpts, locale, question: message })
       : NO_PROVIDER[locale];
 
-    const reply = ensureDisclaimer(fallback, disclaimer);
+    const reply = ensureDisclaimer(fallback);
 
     return {
       reply,
@@ -449,7 +482,7 @@ export async function chatWithAssistant(opts: {
   const parsed = ProviderChatResponseSchema.safeParse(raw);
   if (!parsed.success) {
     // Provider returned valid JSON but not our contract. Return a safe generic message.
-    const reply = ensureDisclaimer(ERROR_GENERIC[locale], disclaimer);
+    const reply = ensureDisclaimer(ERROR_GENERIC[locale]);
 
     return {
       reply,
@@ -542,7 +575,7 @@ export async function chatWithAssistant(opts: {
   const warnings = Array.from(new Set([...(triage.warnings ?? []), ...((modelResp.warnings as any) ?? [])]));
 
   return {
-    reply: ensureDisclaimer(modelResp.reply, disclaimer),
+    reply: ensureDisclaimer(modelResp.reply),
     warnings,
     safetyLevel,
     sources: normalizeCitations(citations).map((c) => ({
