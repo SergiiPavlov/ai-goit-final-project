@@ -521,6 +521,10 @@
 
     // Voice input (SpeechRecognition API)
     var recognition = getSpeechRecognition();
+    if (window.speechSynthesis) {
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
     if (micBtn) {
       if (!recognition) {
         micBtn.disabled = true;
